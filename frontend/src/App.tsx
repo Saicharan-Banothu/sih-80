@@ -1,93 +1,21 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
   CloudRain,
-  ShieldCheck,
-  Activity,
-  Layers,
-  Info,
-  Database,
   Compass,
   AlertTriangle,
-  FileText,
   Clock,
-  Radio,
-  Sliders,
-  CheckCircle,
-  BarChart3,
-  Award,
-  Filter,
-  RefreshCw,
-  ExternalLink,
-  MapPin,
   ListOrdered,
-  GitCompare,
-  BookOpen,
+  Search,
+  Star,
+  RefreshCw,
+  MapPin,
+  CheckCircle,
 } from "lucide-react";
 import { ForecastView } from "./components/ForecastView";
 import { DistrictsCatalogView } from "./components/DistrictsCatalogView";
-import { RawVsCorrectedView } from "./components/RawVsCorrectedView";
-import { PerformanceView } from "./components/PerformanceView";
-import { DataTrustView } from "./components/DataTrustView";
-import { HowItWorksView } from "./components/HowItWorksView";
 import { DistrictDetailDrawer } from "./components/DistrictDetailDrawer";
 import { ForecasterOverrideModal } from "./components/ForecasterOverrideModal";
-import { MapLayerType } from "./components/IndiaMap";
-
-interface DistrictAdvisory {
-  district_id: string;
-  name: string;
-  state: string;
-  zone: string;
-  lat: number;
-  lon: number;
-  area_sq_km: number;
-  forecast: {
-    mean_q50_mm: number;
-    likely_range_q25_q75?: [number, number];
-    max_q90_mm: number;
-    peak_q99_mm: number;
-    quantiles?: {
-      q10: number;
-      q25: number;
-      q50: number;
-      q75: number;
-      q90: number;
-      q95: number;
-      q99: number;
-    };
-    prob_heavy_64_5mm: number;
-    prob_very_heavy_115_6mm: number;
-    prob_extreme_204_5mm: number;
-    confidence?: string;
-  };
-  advisory: {
-    color_code: "RED" | "ORANGE" | "YELLOW" | "GREEN";
-    severity: number;
-    action_text: string;
-    dominant_regime: string;
-  };
-  comparison?: {
-    raw_nwp_median_mm: number;
-    global_qm_median_mm: number;
-    moe_corrected_median_mm: number;
-    correction_delta_mm: number;
-    nwp_bias_corrected: string;
-  };
-  explanation?: {
-    summary: string;
-    synoptic_regime: string;
-    primary_driver: string;
-    bias_adjustment: string;
-    risk_verdict: string;
-  };
-  timeline?: Array<{
-    lead_hours: number;
-    label: string;
-    expected_rain_mm: number;
-    risk_color: string;
-  }>;
-  forecaster_override?: any;
-}
+import { MapLayerType, DistrictAdvisory } from "./components/IndiaMap";
 
 interface ForecastPrediction {
   dominant_regime: string;
@@ -105,20 +33,38 @@ interface ForecastPrediction {
   total_districts: number;
   model_metadata?: any;
   model_version?: string;
-  mode?: string;
   mode_label?: string;
 }
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<
-    "forecast" | "districts" | "comparison" | "performance" | "datatrust" | "methodology"
-  >("forecast");
-
+  const [activeTab, setActiveTab] = useState<"forecast" | "districts">("forecast");
   const [districts, setDistricts] = useState<DistrictAdvisory[]>([]);
   const [prediction, setPrediction] = useState<ForecastPrediction | null>(null);
   const [leadHours, setLeadHours] = useState<number>(24);
-  const [activeMapLayer, setActiveMapLayer] = useState<MapLayerType>("RAINFALL");
+  const [activeMapLayer, setActiveMapLayer] = useState<MapLayerType>("RAIN");
   const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
+
+  // Watchlist state
+  const [watchlist, setWatchlist] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("regimerain_watchlist");
+      return saved ? JSON.parse(saved) : ["OD_PUR", "KL_WAY"];
+    } catch {
+      return ["OD_PUR", "KL_WAY"];
+    }
+  });
+
+  const toggleWatchlist = (id: string) => {
+    setWatchlist((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try {
+        localStorage.setItem("regimerain_watchlist", JSON.stringify(next));
+      } catch (e) {
+        console.warn("Storage error", e);
+      }
+      return next;
+    });
+  };
 
   // Deep dive drawer state
   const [drawerDistrict, setDrawerDistrict] = useState<DistrictAdvisory | null>(null);
@@ -130,6 +76,9 @@ export const App: React.FC = () => {
   const [backendConnected, setBackendConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>(new Date().toISOString());
+
+  // Search in header
+  const [headerSearch, setHeaderSearch] = useState<string>("");
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date().toISOString()), 1000);
@@ -157,7 +106,7 @@ export const App: React.FC = () => {
     } catch (err) {
       console.warn("Using offline simulated operational scenario:", err);
       setBackendConnected(false);
-      // Fallback preview data
+      // High-quality fallback operational scenario
       setPrediction({
         dominant_regime: "MONSOON_DEPRESSION_LOW",
         regime_probabilities: {
@@ -179,8 +128,8 @@ export const App: React.FC = () => {
         },
         district_alert_counts: { RED: 3, ORANGE: 2, YELLOW: 4, GREEN: 8 },
         total_districts: 17,
-        model_version: "JointRegimeAware-v0.1.0",
-        mode_label: "DEMONSTRATION SCENARIO",
+        model_version: "JointRegimeAware-v1",
+        mode_label: "OPERATIONAL DEMONSTRATION",
       });
 
       setDistricts([
@@ -197,7 +146,6 @@ export const App: React.FC = () => {
             likely_range_q25_q75: [88.5, 142.1],
             max_q90_mm: 184.6,
             peak_q99_mm: 265.4,
-            quantiles: { q10: 52.1, q25: 88.5, q50: 114.2, q75: 142.1, q90: 184.6, q95: 218.4, q99: 265.4 },
             prob_heavy_64_5mm: 0.762,
             prob_very_heavy_115_6mm: 0.641,
             prob_extreme_204_5mm: 0.395,
@@ -206,7 +154,7 @@ export const App: React.FC = () => {
           advisory: {
             color_code: "RED",
             severity: 4,
-            action_text: "Take Action (RED WARNING): Landfall of monsoon depression. Severe urban and coastal inundation.",
+            action_text: "Take Action (RED WARNING): Landfall of monsoon depression. Severe urban and coastal inundation expected.",
             dominant_regime: "MONSOON_DEPRESSION_LOW",
           },
           comparison: {
@@ -217,16 +165,16 @@ export const App: React.FC = () => {
             nwp_bias_corrected: "Underestimation (+45.8 mm correction applied)",
           },
           explanation: {
-            summary: "Coastal landfall of monsoon depression with 992 hPa central low pressure.",
-            synoptic_regime: "MONSOON_DEPRESSION_LOW (55% probability)",
-            primary_driver: "Vorticity max at 850 hPa combined with offshore convergence trough.",
-            bias_adjustment: "Raw NWP underrepresented inner-core convective rainbands; neural residual expert compensated.",
-            risk_verdict: "High flash flood and tidal storm surge probability. Immediate response required.",
+            summary: "Coastal landfall of monsoon depression with deep cyclonic circulation and high Bay of Bengal moisture influx.",
+            synoptic_regime: "Monsoon Depression / Low Pressure",
+            primary_driver: "Intense 850 hPa cyclonic vorticity coupled with direct onshore moisture convergence.",
+            bias_adjustment: "Standard numerical forecasts underrepresented inner-core convective rainbands; corrected based on observed regime behavior.",
+            risk_verdict: "High flash flood and tidal waterlogging hazard. Immediate response and drainage clearing required.",
           },
           timeline: [
-            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 114.2, risk_color: "#dc2626" },
-            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 78.4, risk_color: "#ea580c" },
-            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 32.1, risk_color: "#ca8a04" },
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 114.2, risk_color: "#ef4444" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 78.4, risk_color: "#f97316" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 32.1, risk_color: "#eab308" },
           ],
         },
         {
@@ -242,7 +190,6 @@ export const App: React.FC = () => {
             likely_range_q25_q75: [85.0, 140.0],
             max_q90_mm: 164.2,
             peak_q99_mm: 237.8,
-            quantiles: { q10: 48.0, q25: 85.0, q50: 113.0, q75: 140.0, q90: 164.2, q95: 195.0, q99: 237.8 },
             prob_heavy_64_5mm: 0.715,
             prob_very_heavy_115_6mm: 0.584,
             prob_extreme_204_5mm: 0.342,
@@ -251,7 +198,7 @@ export const App: React.FC = () => {
           advisory: {
             color_code: "RED",
             severity: 4,
-            action_text: "Take Action (RED WARNING): Extremely heavy orographic rainfall. Severe risk of flash floods and landslides.",
+            action_text: "Take Action (RED WARNING): Extremely heavy orographic rainfall. Severe risk of flash floods and landslides on slopes.",
             dominant_regime: "OROGRAPHIC_WESTERN_GHATS",
           },
           comparison: {
@@ -262,16 +209,60 @@ export const App: React.FC = () => {
             nwp_bias_corrected: "Severe orographic windward underestimation corrected",
           },
           explanation: {
-            summary: "Vigorous low-level cross-equatorial monsoon jet impingement on steep Western Ghats escarpment.",
-            synoptic_regime: "OROGRAPHIC_WESTERN_GHATS (15% probability)",
-            primary_driver: "850 hPa westerly winds exceeding 35 knots with moisture flux > 400 kg/(m s).",
-            bias_adjustment: "Raw NWP smoothed sub-grid topographic uplift; neural expert upweighted orographic slope cells.",
-            risk_verdict: "High landslide susceptibility in elevated tea plantation catchments. Evacuate vulnerable slopes.",
+            summary: "Vigorous low-level cross-equatorial monsoon jet impingement on steep Western Ghats mountain slopes.",
+            synoptic_regime: "Western Ghats Topographic Uplift",
+            primary_driver: "Westerly winds exceeding 35 knots with moisture flux > 400 kg/(m s).",
+            bias_adjustment: "Standard numerical models smoothed topography; regime correction captures windward valley concentration.",
+            risk_verdict: "High landslide susceptibility on tea plantation slopes. Evacuation of vulnerable hillside communities advised.",
           },
           timeline: [
-            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 113.0, risk_color: "#dc2626" },
-            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 92.5, risk_color: "#dc2626" },
-            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 45.0, risk_color: "#ca8a04" },
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 113.0, risk_color: "#ef4444" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 92.5, risk_color: "#ef4444" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 45.0, risk_color: "#eab308" },
+          ],
+        },
+        {
+          district_id: "MH_RAT",
+          name: "Ratnagiri",
+          state: "Maharashtra",
+          zone: "WESTERN_GHATS_OROGRAPHIC",
+          lat: 16.99,
+          lon: 73.3,
+          area_sq_km: 8208,
+          forecast: {
+            mean_q50_mm: 96.5,
+            likely_range_q25_q75: [72.0, 122.0],
+            max_q90_mm: 148.0,
+            peak_q99_mm: 215.0,
+            prob_heavy_64_5mm: 0.69,
+            prob_very_heavy_115_6mm: 0.52,
+            prob_extreme_204_5mm: 0.28,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "RED",
+            severity: 4,
+            action_text: "Take Action (RED WARNING): Intense coastal orographic surge. Risk of riverine flash inundation.",
+            dominant_regime: "OROGRAPHIC_WESTERN_GHATS",
+          },
+          comparison: {
+            raw_nwp_median_mm: 55.0,
+            global_qm_median_mm: 72.0,
+            moe_corrected_median_mm: 96.5,
+            correction_delta_mm: 41.5,
+            nwp_bias_corrected: "Coastal slope underestimation corrected",
+          },
+          explanation: {
+            summary: "Konkan coastal convergence channel feeding sustained rainbands into coastal foothills.",
+            synoptic_regime: "Western Ghats Topographic Uplift",
+            primary_driver: "Offshore trough along the west coast sustaining moist convective towers.",
+            bias_adjustment: "Regime-based correction restores intense precipitation on western slopes.",
+            risk_verdict: "High risk of flash flooding in coastal rivers. Keep relief teams alerted.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 96.5, risk_color: "#ef4444" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 82.0, risk_color: "#ef4444" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 38.0, risk_color: "#eab308" },
           ],
         },
         {
@@ -287,7 +278,6 @@ export const App: React.FC = () => {
             likely_range_q25_q75: [55.0, 102.0],
             max_q90_mm: 120.9,
             peak_q99_mm: 175.1,
-            quantiles: { q10: 32.0, q25: 55.0, q50: 79.5, q75: 102.0, q90: 120.9, q95: 145.0, q99: 175.1 },
             prob_heavy_64_5mm: 0.613,
             prob_very_heavy_115_6mm: 0.412,
             prob_extreme_204_5mm: 0.125,
@@ -301,22 +291,594 @@ export const App: React.FC = () => {
           },
           comparison: {
             raw_nwp_median_mm: 48.0,
-            global_qm_median_mm: 62.0,
+            global_qm_median_mm: 61.0,
             moe_corrected_median_mm: 79.5,
             correction_delta_mm: 31.5,
-            nwp_bias_corrected: "Convective initiation timing and amplitude corrected",
+            nwp_bias_corrected: "Underestimation (+31.5 mm correction applied)",
           },
           explanation: {
-            summary: "Mesoscale convective cloud complex organized along coastal convergence zone.",
-            synoptic_regime: "COASTAL_CONVECTIVE (3% probability, localized)",
-            primary_driver: "High CAPE (> 2200 J/kg) coupled with land-sea thermal contrast.",
-            bias_adjustment: "Convective expert intensified local rainfall clusters in urban coastal strip.",
-            risk_verdict: "Substantial risk of localized urban flooding and low-lying water stagnation.",
+            summary: "Coastal convergence feeder bands wrapping into the depression circulation.",
+            synoptic_regime: "Coastal Convective Convergence",
+            primary_driver: "Localized onshore breeze convergence interacting with tropical depression outer bands.",
+            bias_adjustment: "Corrected for coastal thermal boundary moisture pooling.",
+            risk_verdict: "Moderate-to-high urban waterlogging in low-lying coastal areas.",
           },
           timeline: [
-            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 79.5, risk_color: "#ea580c" },
-            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 52.0, risk_color: "#ca8a04" },
-            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 22.0, risk_color: "#16a34a" },
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 79.5, risk_color: "#f97316" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 52.0, risk_color: "#eab308" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 20.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "MH_MUM",
+          name: "Mumbai Suburban",
+          state: "Maharashtra",
+          zone: "WESTERN_GHATS_OROGRAPHIC",
+          lat: 19.12,
+          lon: 72.85,
+          area_sq_km: 446,
+          forecast: {
+            mean_q50_mm: 72.0,
+            likely_range_q25_q75: [48.0, 95.0],
+            max_q90_mm: 110.0,
+            peak_q99_mm: 160.0,
+            prob_heavy_64_5mm: 0.58,
+            prob_very_heavy_115_6mm: 0.35,
+            prob_extreme_204_5mm: 0.08,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "ORANGE",
+            severity: 3,
+            action_text: "Be Prepared (ORANGE ALERT): Heavy downpours during high tide windows. Urban transit disruptions likely.",
+            dominant_regime: "COASTAL_CONVECTIVE",
+          },
+          comparison: {
+            raw_nwp_median_mm: 42.0,
+            global_qm_median_mm: 54.0,
+            moe_corrected_median_mm: 72.0,
+            correction_delta_mm: 30.0,
+            nwp_bias_corrected: "Urban-coastal rainfall enhancement corrected",
+          },
+          explanation: {
+            summary: "Active monsoon offshore trough generating episodic heavy rain squalls.",
+            synoptic_regime: "Coastal Convective Convergence",
+            primary_driver: "Banded convective lines over Arabian Sea moving onshore.",
+            bias_adjustment: "Corrected for urban heat and barrier moisture convergence.",
+            risk_verdict: "High probability of localized road waterlogging and local rail slowdowns.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 72.0, risk_color: "#f97316" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 58.0, risk_color: "#eab308" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 30.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "WB_KOL",
+          name: "Kolkata",
+          state: "West Bengal",
+          zone: "MONSOON_DEPRESSION_PATH",
+          lat: 22.57,
+          lon: 88.36,
+          area_sq_km: 206,
+          forecast: {
+            mean_q50_mm: 54.0,
+            likely_range_q25_q75: [35.0, 74.0],
+            max_q90_mm: 88.0,
+            peak_q99_mm: 125.0,
+            prob_heavy_64_5mm: 0.42,
+            prob_very_heavy_115_6mm: 0.18,
+            prob_extreme_204_5mm: 0.04,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "YELLOW",
+            severity: 2,
+            action_text: "Be Aware (YELLOW ALERT): Moderate to heavy rain spells with squally winds.",
+            dominant_regime: "MONSOON_DEPRESSION_LOW",
+          },
+          comparison: {
+            raw_nwp_median_mm: 38.0,
+            global_qm_median_mm: 45.0,
+            moe_corrected_median_mm: 54.0,
+            correction_delta_mm: 16.0,
+            nwp_bias_corrected: "Depression perimeter correction applied",
+          },
+          explanation: {
+            summary: "Outer spiral bands from northern Bay of Bengal depression.",
+            synoptic_regime: "Monsoon Depression / Low Pressure",
+            primary_driver: "Southeasterly maritime wind convergence.",
+            bias_adjustment: "Slight positive adjustment to account for convective band clustering.",
+            risk_verdict: "Localized waterlogging in low-lying city streets during high-intensity bursts.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 54.0, risk_color: "#eab308" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 40.0, risk_color: "#eab308" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 22.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "CH_BIL",
+          name: "Bilaspur",
+          state: "Chhattisgarh",
+          zone: "MONSOON_DEPRESSION_PATH",
+          lat: 22.08,
+          lon: 82.14,
+          area_sq_km: 3508,
+          forecast: {
+            mean_q50_mm: 48.0,
+            likely_range_q25_q75: [30.0, 68.0],
+            max_q90_mm: 82.0,
+            peak_q99_mm: 115.0,
+            prob_heavy_64_5mm: 0.35,
+            prob_very_heavy_115_6mm: 0.12,
+            prob_extreme_204_5mm: 0.02,
+            confidence: "MODERATE",
+          },
+          advisory: {
+            color_code: "YELLOW",
+            severity: 2,
+            action_text: "Be Aware (YELLOW ALERT): Thunderstorms and moderate rain. Localized catchment inflow.",
+            dominant_regime: "ACTIVE_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 36.0,
+            global_qm_median_mm: 42.0,
+            moe_corrected_median_mm: 48.0,
+            correction_delta_mm: 12.0,
+            nwp_bias_corrected: "Moderate adjustment applied",
+          },
+          explanation: {
+            summary: "Monsoon trough axis positioned close to the district, encouraging steady precipitation.",
+            synoptic_regime: "Active Monsoon Surge",
+            primary_driver: "Mid-tropospheric cyclonic shear zone across central India.",
+            bias_adjustment: "Regime bias adjustment for inland moisture retention.",
+            risk_verdict: "Beneficial agricultural rain; minor waterlogging in drainage culverts.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 48.0, risk_color: "#eab308" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 65.0, risk_color: "#f97316" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 35.0, risk_color: "#eab308" },
+          ],
+        },
+        {
+          district_id: "KA_UDU",
+          name: "Udupi",
+          state: "Karnataka",
+          zone: "WESTERN_GHATS_OROGRAPHIC",
+          lat: 13.34,
+          lon: 74.74,
+          area_sq_km: 3575,
+          forecast: {
+            mean_q50_mm: 68.0,
+            likely_range_q25_q75: [46.0, 92.0],
+            max_q90_mm: 114.0,
+            peak_q99_mm: 165.0,
+            prob_heavy_64_5mm: 0.54,
+            prob_very_heavy_115_6mm: 0.28,
+            prob_extreme_204_5mm: 0.06,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "YELLOW",
+            severity: 2,
+            action_text: "Be Aware (YELLOW ALERT): Coastal squalls and sustained orographic showers.",
+            dominant_regime: "OROGRAPHIC_WESTERN_GHATS",
+          },
+          comparison: {
+            raw_nwp_median_mm: 45.0,
+            global_qm_median_mm: 56.0,
+            moe_corrected_median_mm: 68.0,
+            correction_delta_mm: 23.0,
+            nwp_bias_corrected: "Coastal slope underestimation corrected",
+          },
+          explanation: {
+            summary: "Coastal Karnataka receiving steady onshore moisture surge.",
+            synoptic_regime: "Western Ghats Topographic Uplift",
+            primary_driver: "Strong southwesterly maritime winds.",
+            bias_adjustment: "Elevation-aware correction enhances windward rainfall estimates.",
+            risk_verdict: "High sea swells and rough surf. Fishermen advised against venturing into deep sea.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 68.0, risk_color: "#eab308" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 62.0, risk_color: "#eab308" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 40.0, risk_color: "#eab308" },
+          ],
+        },
+        {
+          district_id: "AS_KAM",
+          name: "Kamrup Metropolitan",
+          state: "Assam",
+          zone: "NORTHEAST_OROGRAPHIC",
+          lat: 26.14,
+          lon: 91.73,
+          area_sq_km: 1528,
+          forecast: {
+            mean_q50_mm: 52.0,
+            likely_range_q25_q75: [32.0, 72.0],
+            max_q90_mm: 88.0,
+            peak_q99_mm: 130.0,
+            prob_heavy_64_5mm: 0.38,
+            prob_very_heavy_115_6mm: 0.16,
+            prob_extreme_204_5mm: 0.03,
+            confidence: "MODERATE",
+          },
+          advisory: {
+            color_code: "YELLOW",
+            severity: 2,
+            action_text: "Be Aware (YELLOW ALERT): Spells of moderate to heavy rain in Brahmaputra basin.",
+            dominant_regime: "BREAK_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 36.0,
+            global_qm_median_mm: 44.0,
+            moe_corrected_median_mm: 52.0,
+            correction_delta_mm: 16.0,
+            nwp_bias_corrected: "Valley confinement bias adjusted",
+          },
+          explanation: {
+            summary: "Moisture trapped along the Assam valley foothills triggering localized showers.",
+            synoptic_regime: "Break Monsoon Condition",
+            primary_driver: "Southern moist airflow impinging on Himalayan foothills.",
+            bias_adjustment: "Corrected for steep terrain moisture confinement.",
+            risk_verdict: "River water levels elevated; monitor local embankment points.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 52.0, risk_color: "#eab308" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 45.0, risk_color: "#eab308" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 30.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "DL_DEL",
+          name: "New Delhi",
+          state: "Delhi",
+          zone: "INDO_GANGETIC_PLAINS",
+          lat: 28.61,
+          lon: 77.2,
+          area_sq_km: 1483,
+          forecast: {
+            mean_q50_mm: 18.0,
+            likely_range_q25_q75: [8.0, 32.0],
+            max_q90_mm: 45.0,
+            peak_q99_mm: 68.0,
+            prob_heavy_64_5mm: 0.08,
+            prob_very_heavy_115_6mm: 0.02,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Light to moderate passing showers. No severe warning.",
+            dominant_regime: "ACTIVE_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 15.0,
+            global_qm_median_mm: 17.0,
+            moe_corrected_median_mm: 18.0,
+            correction_delta_mm: 3.0,
+            nwp_bias_corrected: "Normal calibration",
+          },
+          explanation: {
+            summary: "Scattered clouds with intermittent light drizzles.",
+            synoptic_regime: "Active Monsoon Surge",
+            primary_driver: "Peripheral moisture diffusion along Indo-Gangetic Plains.",
+            bias_adjustment: "Standard baseline calibration.",
+            risk_verdict: "No major weather impact expected.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 18.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 22.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 12.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "TN_CHE",
+          name: "Chennai",
+          state: "Tamil Nadu",
+          zone: "COASTAL_CONVECTIVE",
+          lat: 13.08,
+          lon: 80.27,
+          area_sq_km: 426,
+          forecast: {
+            mean_q50_mm: 12.0,
+            likely_range_q25_q75: [4.0, 22.0],
+            max_q90_mm: 34.0,
+            peak_q99_mm: 52.0,
+            prob_heavy_64_5mm: 0.05,
+            prob_very_heavy_115_6mm: 0.01,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Partly cloudy sky with brief isolated showers.",
+            dominant_regime: "COASTAL_CONVECTIVE",
+          },
+          comparison: {
+            raw_nwp_median_mm: 10.0,
+            global_qm_median_mm: 11.5,
+            moe_corrected_median_mm: 12.0,
+            correction_delta_mm: 2.0,
+            nwp_bias_corrected: "Minor sea breeze adjustment",
+          },
+          explanation: {
+            summary: "Rain shadow during active southwest monsoon phase.",
+            synoptic_regime: "Coastal Convective Convergence",
+            primary_driver: "Localized afternoon sea-breeze convection.",
+            bias_adjustment: "Minimal adjustment applied.",
+            risk_verdict: "No weather warnings active.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 12.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 15.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 8.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "KA_BLR",
+          name: "Bengaluru Urban",
+          state: "Karnataka",
+          zone: "INDO_GANGETIC_PLAINS",
+          lat: 12.97,
+          lon: 77.59,
+          area_sq_km: 741,
+          forecast: {
+            mean_q50_mm: 14.5,
+            likely_range_q25_q75: [6.0, 26.0],
+            max_q90_mm: 38.0,
+            peak_q99_mm: 55.0,
+            prob_heavy_64_5mm: 0.06,
+            prob_very_heavy_115_6mm: 0.01,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Breezy and overcast with light passing drizzle.",
+            dominant_regime: "ACTIVE_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 12.0,
+            global_qm_median_mm: 13.5,
+            moe_corrected_median_mm: 14.5,
+            correction_delta_mm: 2.5,
+            nwp_bias_corrected: "Plateau elevation adjustment",
+          },
+          explanation: {
+            summary: "Southern interior plateau shielded by Western Ghats ridge.",
+            synoptic_regime: "Active Monsoon Surge",
+            primary_driver: "Breezy westerly moisture plume over Deccan plateau.",
+            bias_adjustment: "Plateau dry-shadow correction.",
+            risk_verdict: "No risk of flooding. Favorable urban weather.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 14.5, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 18.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 10.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "TS_HYD",
+          name: "Hyderabad",
+          state: "Telangana",
+          zone: "INDO_GANGETIC_PLAINS",
+          lat: 17.38,
+          lon: 78.48,
+          area_sq_km: 217,
+          forecast: {
+            mean_q50_mm: 22.0,
+            likely_range_q25_q75: [10.0, 36.0],
+            max_q90_mm: 50.0,
+            peak_q99_mm: 72.0,
+            prob_heavy_64_5mm: 0.12,
+            prob_very_heavy_115_6mm: 0.03,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Light to moderate spells. No major alert.",
+            dominant_regime: "ACTIVE_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 18.0,
+            global_qm_median_mm: 20.0,
+            moe_corrected_median_mm: 22.0,
+            correction_delta_mm: 4.0,
+            nwp_bias_corrected: "Minor calibration",
+          },
+          explanation: {
+            summary: "Interior convergence leading to short showers.",
+            synoptic_regime: "Active Monsoon Surge",
+            primary_driver: "Mid-level moisture advection.",
+            bias_adjustment: "Standard calibration.",
+            risk_verdict: "Safe conditions. Standard city traffic.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 22.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 25.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 15.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "UP_LUK",
+          name: "Lucknow",
+          state: "Uttar Pradesh",
+          zone: "INDO_GANGETIC_PLAINS",
+          lat: 26.84,
+          lon: 80.94,
+          area_sq_km: 2528,
+          forecast: {
+            mean_q50_mm: 28.0,
+            likely_range_q25_q75: [14.0, 44.0],
+            max_q90_mm: 58.0,
+            peak_q99_mm: 85.0,
+            prob_heavy_64_5mm: 0.18,
+            prob_very_heavy_115_6mm: 0.04,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Moderate rain spells with occasional thunder.",
+            dominant_regime: "ACTIVE_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 24.0,
+            global_qm_median_mm: 26.0,
+            moe_corrected_median_mm: 28.0,
+            correction_delta_mm: 4.0,
+            nwp_bias_corrected: "Calibrated plains estimation",
+          },
+          explanation: {
+            summary: "Gangetic plains easterly moisture flow.",
+            synoptic_regime: "Active Monsoon Surge",
+            primary_driver: "Trough orientation through eastern UP.",
+            bias_adjustment: "Slight adjustment for convective cells.",
+            risk_verdict: "Standard monsoon showers.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 28.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 32.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 18.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "BR_PAT",
+          name: "Patna",
+          state: "Bihar",
+          zone: "INDO_GANGETIC_PLAINS",
+          lat: 25.59,
+          lon: 85.13,
+          area_sq_km: 3202,
+          forecast: {
+            mean_q50_mm: 31.0,
+            likely_range_q25_q75: [16.0, 48.0],
+            max_q90_mm: 62.0,
+            peak_q99_mm: 92.0,
+            prob_heavy_64_5mm: 0.22,
+            prob_very_heavy_115_6mm: 0.05,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Occasional rain spells along Ganga basin.",
+            dominant_regime: "ACTIVE_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 26.0,
+            global_qm_median_mm: 29.0,
+            moe_corrected_median_mm: 31.0,
+            correction_delta_mm: 5.0,
+            nwp_bias_corrected: "Plains riverine calibration",
+          },
+          explanation: {
+            summary: "Active monsoon trough over central-eastern Gangetic belt.",
+            synoptic_regime: "Active Monsoon Surge",
+            primary_driver: "Low-level easterly wind convergence.",
+            bias_adjustment: "Calibrated for sub-basin drainage.",
+            risk_verdict: "Normal agricultural conditions.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 31.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 38.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 22.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "UK_DEH",
+          name: "Dehradun",
+          state: "Uttarakhand",
+          zone: "WESTERN_HIMALAYAN",
+          lat: 30.31,
+          lon: 78.03,
+          area_sq_km: 3088,
+          forecast: {
+            mean_q50_mm: 35.0,
+            likely_range_q25_q75: [18.0, 56.0],
+            max_q90_mm: 74.0,
+            peak_q99_mm: 110.0,
+            prob_heavy_64_5mm: 0.25,
+            prob_very_heavy_115_6mm: 0.07,
+            prob_extreme_204_5mm: 0.01,
+            confidence: "MODERATE",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Foothill showers; watch for localized runoff in hilly streams.",
+            dominant_regime: "WESTERN_DISTURBANCE",
+          },
+          comparison: {
+            raw_nwp_median_mm: 28.0,
+            global_qm_median_mm: 32.0,
+            moe_corrected_median_mm: 35.0,
+            correction_delta_mm: 7.0,
+            nwp_bias_corrected: "Foothill orographic adjustment",
+          },
+          explanation: {
+            summary: "Intermittent rain showers across Shivalik range.",
+            synoptic_regime: "Western Disturbance Trough",
+            primary_driver: "Mid-level westerly trough interactions.",
+            bias_adjustment: "Elevation correction for foothill runoff.",
+            risk_verdict: "Moderate rainfall; vigilance on hill roads.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 35.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 42.0, risk_color: "#eab308" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 25.0, risk_color: "#22c55e" },
+          ],
+        },
+        {
+          district_id: "RJ_JAI",
+          name: "Jaipur",
+          state: "Rajasthan",
+          zone: "INDO_GANGETIC_PLAINS",
+          lat: 26.91,
+          lon: 75.78,
+          area_sq_km: 11117,
+          forecast: {
+            mean_q50_mm: 10.0,
+            likely_range_q25_q75: [3.0, 18.0],
+            max_q90_mm: 28.0,
+            peak_q99_mm: 42.0,
+            prob_heavy_64_5mm: 0.03,
+            prob_very_heavy_115_6mm: 0.0,
+            prob_extreme_204_5mm: 0.0,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "GREEN",
+            severity: 1,
+            action_text: "Normal Weather (GREEN): Dry to lightly overcast; isolated light sprinkle.",
+            dominant_regime: "BREAK_MONSOON",
+          },
+          comparison: {
+            raw_nwp_median_mm: 8.0,
+            global_qm_median_mm: 9.0,
+            moe_corrected_median_mm: 10.0,
+            correction_delta_mm: 2.0,
+            nwp_bias_corrected: "Arid zone boundary adjustment",
+          },
+          explanation: {
+            summary: "Semi-arid zone experiencing subdued precipitation.",
+            synoptic_regime: "Break Monsoon Condition",
+            primary_driver: "Subsiding mid-tropospheric air preventing deep vertical convection.",
+            bias_adjustment: "Standard arid baseline calibration.",
+            risk_verdict: "No weather hazard.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 10.0, risk_color: "#22c55e" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 14.0, risk_color: "#22c55e" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 6.0, risk_color: "#22c55e" },
           ],
         },
       ]);
@@ -331,13 +893,16 @@ export const App: React.FC = () => {
 
   const handleLeadChange = (hours: number) => {
     setLeadHours(hours);
+    fetchData(hours);
   };
 
-  const handleSelectDistrictFromMap = (id: string) => {
-    setSelectedDistrictId(id);
-    const found = districts.find((d) => d.district_id === id);
-    if (found) {
-      setDrawerDistrict(found);
+  const handleSelectDistrictFromMap = (districtId: string) => {
+    setSelectedDistrictId(districtId);
+    const d = districts.find(
+      (item) => item.district_id.toUpperCase() === districtId.toUpperCase()
+    );
+    if (d) {
+      setDrawerDistrict(d);
     }
   };
 
@@ -351,310 +916,411 @@ export const App: React.FC = () => {
     setOverrideModalOpen(true);
   };
 
-  const handleApplyOverride = async (districtId: string, color: string, scale: number, reason: string) => {
-    try {
-      const res = await fetch("/api/v1/forecast/override", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          district_id: districtId,
-          forecaster_id: "DUTY_METEOROLOGIST_01",
-          overridden_color: color,
-          scaling_multiplier: scale,
-          justification_reason: reason,
-        }),
-      });
+  const handleApplyOverride = async (
+    districtId: string,
+    color: string,
+    scale: number,
+    reason: string
+  ) => {
+    setDistricts((prev) =>
+      prev.map((d) => {
+        if (d.district_id === districtId) {
+          const actionText =
+            color === "RED"
+              ? `Take Action (RED WARNING - Forecaster Override): ${reason}`
+              : color === "ORANGE"
+              ? `Be Prepared (ORANGE ALERT - Forecaster Override): ${reason}`
+              : color === "YELLOW"
+              ? `Be Aware (YELLOW ALERT - Forecaster Override): ${reason}`
+              : `Normal Weather (GREEN - Forecaster Override): ${reason}`;
 
-      if (res.ok) {
-        const data = await res.json();
-        setDistricts((prev) =>
-          prev.map((d) => (d.district_id === districtId ? data.updated_advisory : d))
-        );
-        if (drawerDistrict && drawerDistrict.district_id === districtId) {
-          setDrawerDistrict(data.updated_advisory);
+          return {
+            ...d,
+            forecast: {
+              ...d.forecast,
+              mean_q50_mm: Math.round(d.forecast.mean_q50_mm * scale * 10) / 10,
+            },
+            advisory: {
+              ...d.advisory,
+              color_code: color as any,
+              action_text: actionText,
+            },
+          };
         }
-      } else {
-        throw new Error("Backend override returned status " + res.status);
-      }
-    } catch (err) {
-      console.warn("Applying optimistic client-side override:", err);
-      setDistricts((prev) =>
-        prev.map((d) => {
-          if (d.district_id === districtId) {
-            const updated = {
-              ...d,
-              advisory: {
-                ...d.advisory,
-                color_code: color as any,
-                action_text: `[DUTY FORECASTER OVERRIDE] Alert modified to ${color}. Rationale: ${reason}`,
-              },
+        return d;
+      })
+    );
+
+    if (drawerDistrict && drawerDistrict.district_id === districtId) {
+      setDrawerDistrict((prev) =>
+        prev
+          ? {
+              ...prev,
               forecast: {
-                ...d.forecast,
-                mean_q50_mm: Math.round(d.forecast.mean_q50_mm * scale * 10) / 10,
-                max_q90_mm: Math.round(d.forecast.max_q90_mm * scale * 10) / 10,
-                peak_q99_mm: Math.round(d.forecast.peak_q99_mm * scale * 10) / 10,
+                ...prev.forecast,
+                mean_q50_mm: Math.round(prev.forecast.mean_q50_mm * scale * 10) / 10,
               },
-            };
-            if (drawerDistrict && drawerDistrict.district_id === districtId) {
-              setDrawerDistrict(updated);
+              advisory: {
+                ...prev.advisory,
+                color_code: color as any,
+                action_text: `Forecaster Override (${color}): ${reason}`,
+              },
             }
-            return updated;
-          }
-          return d;
-        })
+          : null
       );
     }
   };
 
+  // Header quick search matches
+  const searchResults = headerSearch.trim()
+    ? districts.filter(
+        (d) =>
+          d.name.toLowerCase().includes(headerSearch.toLowerCase()) ||
+          d.state.toLowerCase().includes(headerSearch.toLowerCase())
+      )
+    : [];
+
   return (
-    <div className="app-container" style={{ minHeight: "100vh", background: "#0b1329", color: "#f8fafc" }}>
-      {/* Operational Header */}
-      <header className="operational-header">
-        <div className="brand-section">
-          <div className="brand-icon-wrapper">
-            <CloudRain size={24} />
-          </div>
-          <div className="brand-titles">
-            <div className="brand-title">
-              RegimeRain-AI
-              <span className="brand-badge">SIH 2026 PS-80</span>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+        background: "#090d16",
+        color: "#f8fafc",
+        fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      }}
+    >
+      {/* Primary Clean Header */}
+      <header
+        style={{
+          background: "rgba(15, 23, 42, 0.95)",
+          borderBottom: "1px solid #334155",
+          padding: "12px 24px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "16px",
+          flexWrap: "wrap",
+          zIndex: 100,
+        }}
+      >
+        {/* Brand & Cycle Info */}
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                background: "linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 2px 10px rgba(56, 189, 248, 0.3)",
+              }}
+            >
+              <CloudRain size={22} color="#ffffff" />
             </div>
-            <div className="brand-subtitle">
-              Regime-Aware Rainfall Forecast Correction & Decision-Support System
+            <div>
+              <div style={{ fontSize: "16px", fontWeight: 800, letterSpacing: "-0.3px", color: "#f8fafc" }}>
+                RegimeRain-AI
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#94a3b8",
+                    marginLeft: "8px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  India Rainfall Intelligence
+                </span>
+              </div>
+              <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
+                00 UTC Cycle &bull; Updated 05:30 IST &bull; Multi-source synoptic feed
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="header-meta">
-          <div className="meta-item">
-            <span className="meta-label">Forecast Cycle</span>
-            <span className="meta-value">00:00 UTC (Day 1-3)</span>
-          </div>
-
-          <div className="meta-item">
-            <span className="meta-label">Active Lead</span>
-            <span className="meta-value" style={{ color: "#38bdf8", fontWeight: 700 }}>+{leadHours}h</span>
-          </div>
-
-          <div className="meta-item">
-            <span className="meta-label">Data Mode</span>
-            <span
-              className="meta-value"
+        {/* Center: Forecast Horizon Switcher */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            background: "#1e293b",
+            padding: "4px",
+            borderRadius: "8px",
+            border: "1px solid #334155",
+            gap: "4px",
+          }}
+        >
+          <span style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600, padding: "0 8px" }}>
+            Horizon:
+          </span>
+          {[24, 48, 72].map((hours) => (
+            <button
+              key={hours}
+              onClick={() => handleLeadChange(hours)}
               style={{
-                color: backendConnected ? "#4ade80" : "#fbbf24",
-                fontWeight: 700,
-                fontFamily: "var(--font-mono)",
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "none",
+                background: leadHours === hours ? "#0284c7" : "transparent",
+                color: leadHours === hours ? "#ffffff" : "#94a3b8",
+                fontWeight: leadHours === hours ? 700 : 500,
+                fontSize: "12px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
               }}
             >
-              {backendConnected ? "FASTAPI OPERATIONAL PIPELINE" : "SYNTHETIC DEMO SCENARIO"}
-            </span>
+              {hours}h (Day {hours / 24})
+            </button>
+          ))}
+        </div>
+
+        {/* Right: Quick Search & Clean Status */}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", position: "relative" }}>
+          {/* Header Quick Search */}
+          <div style={{ position: "relative", width: "220px" }}>
+            <Search
+              size={14}
+              style={{
+                position: "absolute",
+                left: "9px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#64748b",
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Find district..."
+              value={headerSearch}
+              onChange={(e) => setHeaderSearch(e.target.value)}
+              style={{
+                width: "100%",
+                background: "#1e293b",
+                border: "1px solid #334155",
+                borderRadius: "6px",
+                padding: "6px 10px 6px 28px",
+                fontSize: "12px",
+                color: "#f8fafc",
+                outline: "none",
+              }}
+            />
+            {/* Search Dropdown */}
+            {headerSearch.trim() && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  width: "280px",
+                  background: "#1e293b",
+                  border: "1px solid #334155",
+                  borderRadius: "6px",
+                  boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+                  marginTop: "6px",
+                  zIndex: 2000,
+                  maxHeight: "280px",
+                  overflowY: "auto",
+                }}
+              >
+                {searchResults.length === 0 ? (
+                  <div style={{ padding: "10px", fontSize: "12px", color: "#94a3b8", textAlign: "center" }}>
+                    No matching districts
+                  </div>
+                ) : (
+                  searchResults.map((d) => (
+                    <div
+                      key={d.district_id}
+                      onClick={() => {
+                        handleSelectDistrictFromMap(d.district_id);
+                        setHeaderSearch("");
+                      }}
+                      style={{
+                        padding: "8px 12px",
+                        borderBottom: "1px solid #334155",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        cursor: "pointer",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#334155")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#f8fafc" }}>
+                          {d.name}
+                        </div>
+                        <div style={{ fontSize: "10px", color: "#94a3b8" }}>{d.state}</div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          color:
+                            d.advisory.color_code === "RED"
+                              ? "#ef4444"
+                              : d.advisory.color_code === "ORANGE"
+                              ? "#f97316"
+                              : d.advisory.color_code === "YELLOW"
+                              ? "#eab308"
+                              : "#22c55e",
+                        }}
+                      >
+                        {d.forecast.mean_q50_mm} mm
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="status-pill">
-            <span className="status-dot" style={{ background: backendConnected ? "#22c55e" : "#eab308" }}></span>
-            {backendConnected ? "SYSTEM ONLINE" : "DEMO PREVIEW"}
+          {/* Clean Calm Operational Status Pill */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              background: backendConnected ? "rgba(34, 197, 94, 0.12)" : "rgba(234, 179, 8, 0.12)",
+              border: backendConnected ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(234, 179, 8, 0.3)",
+              padding: "5px 10px",
+              borderRadius: "20px",
+              fontSize: "11px",
+              fontWeight: 600,
+              color: backendConnected ? "#4ade80" : "#facc15",
+            }}
+          >
+            <span
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: backendConnected ? "#22c55e" : "#eab308",
+              }}
+            />
+            {backendConnected ? "Live Operational Feed" : "Operational Demo Mode"}
           </div>
         </div>
       </header>
 
-      {/* Navigation Bar */}
+      {/* Main Navigation (Strictly 2 Primary Tabs: Forecast & Districts) */}
       <nav
-        className="dashboard-nav"
         style={{
           display: "flex",
-          gap: "0.5rem",
-          padding: "0.75rem 1.5rem",
-          background: "rgba(15, 23, 42, 0.8)",
-          borderBottom: "1px solid var(--border-subtle)",
-          overflowX: "auto",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "8px 24px",
+          background: "#0f172a",
+          borderBottom: "1px solid #1e293b",
         }}
       >
-        <button
-          onClick={() => setActiveTab("forecast")}
-          className={`nav-tab-btn ${activeTab === "forecast" ? "active" : ""}`}
-          style={{
-            padding: "0.5rem 1rem",
-            borderRadius: "6px",
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            border: activeTab === "forecast" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "forecast" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "forecast" ? "#38bdf8" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <Compass size={15} /> Forecast & Spatial Map
-        </button>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            onClick={() => setActiveTab("forecast")}
+            style={{
+              padding: "7px 16px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              border: activeTab === "forecast" ? "1px solid #38bdf8" : "1px solid transparent",
+              background: activeTab === "forecast" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+              color: activeTab === "forecast" ? "#38bdf8" : "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Compass size={15} /> Forecast & Spatial Map
+          </button>
 
-        <button
+          <button
+            onClick={() => setActiveTab("districts")}
+            style={{
+              padding: "7px 16px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              border: activeTab === "districts" ? "1px solid #38bdf8" : "1px solid transparent",
+              background: activeTab === "districts" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+              color: activeTab === "districts" ? "#38bdf8" : "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <ListOrdered size={15} /> District Risk Directory ({districts.length})
+          </button>
+        </div>
+
+        {/* Watchlist Quick Count indicator */}
+        <div
           onClick={() => setActiveTab("districts")}
-          className={`nav-tab-btn ${activeTab === "districts" ? "active" : ""}`}
           style={{
-            padding: "0.5rem 1rem",
-            borderRadius: "6px",
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            cursor: "pointer",
-            border: activeTab === "districts" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "districts" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "districts" ? "#38bdf8" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
-            gap: "0.4rem",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <ListOrdered size={15} /> District Advisories Dossier ({districts.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab("comparison")}
-          className={`nav-tab-btn ${activeTab === "comparison" ? "active" : ""}`}
-          style={{
-            padding: "0.5rem 1rem",
-            borderRadius: "6px",
-            fontSize: "0.82rem",
-            fontWeight: 700,
+            gap: "5px",
+            fontSize: "12px",
+            color: watchlist.length > 0 ? "#eab308" : "#64748b",
             cursor: "pointer",
-            border: activeTab === "comparison" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "comparison" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "comparison" ? "#38bdf8" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <GitCompare size={15} /> Raw vs Corrected (3-Way)
-        </button>
-
-        <button
-          onClick={() => setActiveTab("performance")}
-          className={`nav-tab-btn ${activeTab === "performance" ? "active" : ""}`}
-          style={{
-            padding: "0.5rem 1rem",
+            background: "rgba(234, 179, 8, 0.1)",
+            padding: "4px 10px",
             borderRadius: "6px",
-            fontSize: "0.82rem",
-            fontWeight: 600,
-            cursor: "pointer",
-            border: activeTab === "performance" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "performance" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "performance" ? "#38bdf8" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            whiteSpace: "nowrap",
+            border: "1px solid rgba(234, 179, 8, 0.2)",
           }}
         >
-          <BarChart3 size={15} /> Scientific Verification & Leaderboard
-        </button>
-
-        <button
-          onClick={() => setActiveTab("datatrust")}
-          className={`nav-tab-btn ${activeTab === "datatrust" ? "active" : ""}`}
-          style={{
-            padding: "0.5rem 1rem",
-            borderRadius: "6px",
-            fontSize: "0.82rem",
-            fontWeight: 600,
-            cursor: "pointer",
-            border: activeTab === "datatrust" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "datatrust" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "datatrust" ? "#38bdf8" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <ShieldCheck size={15} /> Data Governance & Zero Leakage
-        </button>
-
-        <button
-          onClick={() => setActiveTab("methodology")}
-          className={`nav-tab-btn ${activeTab === "methodology" ? "active" : ""}`}
-          style={{
-            padding: "0.5rem 1rem",
-            borderRadius: "6px",
-            fontSize: "0.82rem",
-            fontWeight: 600,
-            cursor: "pointer",
-            border: activeTab === "methodology" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "methodology" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "methodology" ? "#38bdf8" : "var(--text-secondary)",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <BookOpen size={15} /> How It Works & Architecture
-        </button>
+          <Star size={13} fill={watchlist.length > 0 ? "#eab308" : "none"} />
+          <span style={{ fontWeight: 600 }}>Watchlist: {watchlist.length} districts</span>
+        </div>
       </nav>
 
-      {/* Human-in-the-Loop Forecaster Banner */}
-      <div className="disclaimer-banner">
-        <div className="disclaimer-text">
-          <AlertTriangle size={15} color="#eab308" />
-          <span>
-            <strong>IMD OPERATIONAL DECISION SUPPORT:</strong> Soft-gated Mixture of Experts residual architecture (q10 - q99). Continuous Pareto tail inversion (P &gt; 64.5, 115.6, 204.5 mm). All alerts require certified meteorologist sign-off.
-          </span>
-        </div>
-        <div style={{ display: "flex", gap: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
-          <span>UTC: {currentTime.slice(11, 19)}</span>
-          <span>DISTRICTS: {districts.length}</span>
-        </div>
-      </div>
+      {/* Main View Body */}
+      <main style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {activeTab === "forecast" && (
+          <ForecastView
+            districts={districts}
+            prediction={prediction}
+            leadHours={leadHours}
+            onChangeLeadHours={handleLeadChange}
+            activeLayer={activeMapLayer}
+            onChangeLayer={setActiveMapLayer}
+            selectedDistrictId={selectedDistrictId}
+            onSelectDistrict={handleSelectDistrictFromMap}
+            onViewDistrictDetails={handleSelectDistrictFromCatalog}
+            watchlist={watchlist}
+            onToggleWatchlist={toggleWatchlist}
+          />
+        )}
 
-      {/* TAB 1: FORECAST VIEW (HERO INDIA MAP + ATTENTION ALERTS + TIMELINE) */}
-      {activeTab === "forecast" && (
-        <ForecastView
-          districts={districts}
-          prediction={prediction}
-          leadHours={leadHours}
-          onChangeLeadHours={handleLeadChange}
-          activeLayer={activeMapLayer}
-          onChangeLayer={setActiveMapLayer}
-          selectedDistrictId={selectedDistrictId}
-          onSelectDistrict={handleSelectDistrictFromMap}
-          onOpenOverride={handleOpenOverride}
-          onViewDistrictDetails={handleSelectDistrictFromCatalog}
-        />
-      )}
+        {activeTab === "districts" && (
+          <DistrictsCatalogView
+            districts={districts}
+            onSelectDistrict={handleSelectDistrictFromCatalog}
+            watchlist={watchlist}
+            onToggleWatchlist={toggleWatchlist}
+          />
+        )}
+      </main>
 
-      {/* TAB 2: DISTRICTS CATALOG VIEW (SEARCHABLE & FILTERABLE DOSSIER) */}
-      {activeTab === "districts" && (
-        <DistrictsCatalogView
-          districts={districts}
-          onSelectDistrict={handleSelectDistrictFromCatalog}
-          onOpenOverride={handleOpenOverride}
-        />
-      )}
-
-      {/* TAB 3: RAW VS CORRECTED COMPARISON */}
-      {activeTab === "comparison" && <RawVsCorrectedView />}
-
-      {/* TAB 4: SCIENTIFIC VERIFICATION & LEADERBOARD */}
-      {activeTab === "performance" && <PerformanceView />}
-
-      {/* TAB 5: DATA PROVENANCE & ZERO LEAKAGE */}
-      {activeTab === "datatrust" && <DataTrustView />}
-
-      {/* TAB 6: HOW IT WORKS & ARCHITECTURE */}
-      {activeTab === "methodology" && <HowItWorksView />}
-
-      {/* District Detail Deep-Dive Drawer */}
+      {/* District Intelligence Panel (Slide-over Drawer) */}
       <DistrictDetailDrawer
         district={drawerDistrict}
         onClose={() => setDrawerDistrict(null)}
         onOpenOverride={(dist) => handleOpenOverride(dist as any)}
+        isWatchlisted={drawerDistrict ? watchlist.includes(drawerDistrict.district_id) : false}
+        onToggleWatchlist={toggleWatchlist}
       />
 
-      {/* Certified Duty Forecaster Override Modal */}
+      {/* Forecaster Operational Override Modal */}
       <ForecasterOverrideModal
         isOpen={overrideModalOpen}
         district={districtToOverride}
@@ -664,4 +1330,5 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
 export default App;

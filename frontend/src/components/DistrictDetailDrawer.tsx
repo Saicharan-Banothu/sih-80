@@ -12,76 +12,29 @@ import {
   HelpCircle,
   Clock,
   Layers,
-  UserCheck,
+  Star,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
 } from "lucide-react";
-
-interface DistrictAdvisory {
-  district_id: string;
-  name: string;
-  state: string;
-  zone: string;
-  lat: number;
-  lon: number;
-  area_sq_km: number;
-  forecast: {
-    mean_q50_mm: number;
-    likely_range_q25_q75?: [number, number];
-    max_q90_mm: number;
-    peak_q99_mm: number;
-    quantiles?: {
-      q10: number;
-      q25: number;
-      q50: number;
-      q75: number;
-      q90: number;
-      q95: number;
-      q99: number;
-    };
-    prob_heavy_64_5mm: number;
-    prob_very_heavy_115_6mm: number;
-    prob_extreme_204_5mm: number;
-    confidence?: string;
-  };
-  advisory: {
-    color_code: "RED" | "ORANGE" | "YELLOW" | "GREEN";
-    severity: number;
-    action_text: string;
-    dominant_regime: string;
-  };
-  comparison?: {
-    raw_nwp_median_mm: number;
-    global_qm_median_mm: number;
-    moe_corrected_median_mm: number;
-    correction_delta_mm: number;
-    nwp_bias_corrected: string;
-  };
-  explanation?: {
-    summary: string;
-    synoptic_regime: string;
-    primary_driver: string;
-    bias_adjustment: string;
-    risk_verdict: string;
-  };
-  timeline?: Array<{
-    lead_hours: number;
-    label: string;
-    expected_rain_mm: number;
-    risk_color: string;
-  }>;
-}
+import { DistrictAdvisory } from "./IndiaMap";
 
 interface DistrictDetailDrawerProps {
   district: DistrictAdvisory | null;
   onClose: () => void;
-  onOpenOverride: (district: DistrictAdvisory) => void;
+  onOpenOverride?: (district: DistrictAdvisory) => void;
+  isWatchlisted?: boolean;
+  onToggleWatchlist?: (districtId: string) => void;
 }
 
 export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
   district,
   onClose,
   onOpenOverride,
+  isWatchlisted = false,
+  onToggleWatchlist,
 }) => {
-  const [showTechnicalUncertainty, setShowTechnicalUncertainty] = useState<boolean>(false);
+  const [showComparison, setShowComparison] = useState<boolean>(false);
 
   if (!district) return null;
 
@@ -96,17 +49,46 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
       : "#22c55e";
 
   const likelyRange = forecast.likely_range_q25_q75 ?? [
-    Math.round(forecast.mean_q50_mm * 0.7),
-    Math.round(forecast.mean_q50_mm * 1.3),
+    Math.round(forecast.mean_q50_mm * 0.75),
+    Math.round(forecast.mean_q50_mm * 1.25),
   ];
+
+  // Map regime codes to clean human descriptions
+  const humanRegimeNames: Record<string, string> = {
+    MONSOON_DEPRESSION_LOW: "Monsoon Depression / Low Pressure System",
+    OROGRAPHIC_WESTERN_GHATS: "Western Ghats Topographic Uplift",
+    ACTIVE_MONSOON: "Active Monsoon Surge (Trough Axis Active)",
+    BREAK_MONSOON: "Break Monsoon (Foothills Convection)",
+    COASTAL_CONVECTIVE: "Coastal Convective Convergence",
+    WESTERN_DISTURBANCE: "Western Disturbance Trough",
+  };
+
+  const weatherSituation =
+    humanRegimeNames[advisory.dominant_regime] ||
+    advisory.dominant_regime.replace(/_/g, " ");
+
+  const confidenceText = forecast.confidence || "HIGH";
+  const confidenceColor =
+    confidenceText === "HIGH"
+      ? "#38bdf8"
+      : confidenceText === "MODERATE"
+      ? "#facc15"
+      : "#94a3b8";
+
+  const confidenceExplanation =
+    confidenceText === "HIGH"
+      ? "Consistent alignment across synoptic satellite flow and atmospheric moisture soundings."
+      : confidenceText === "MODERATE"
+      ? "Localized convective variability; track and intensity remain within expected margins."
+      : "Moderate uncertainty due to mesoscale moisture fluctuation.";
 
   return (
     <div
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(15, 23, 42, 0.7)",
-        backdropFilter: "blur(4px)",
+        background: "rgba(15, 23, 42, 0.75)",
+        backdropFilter: "blur(5px)",
         zIndex: 9000,
         display: "flex",
         justifyContent: "flex-end",
@@ -117,11 +99,11 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
       <div
         style={{
           width: "100%",
-          maxWidth: "560px",
+          maxWidth: "580px",
           height: "100%",
           background: "#0f172a",
           borderLeft: "1px solid #334155",
-          boxShadow: "-8px 0 25px rgba(0,0,0,0.5)",
+          boxShadow: "-10px 0 30px rgba(0,0,0,0.6)",
           display: "flex",
           flexDirection: "column",
           color: "#f8fafc",
@@ -153,32 +135,64 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
                   fontWeight: 800,
                   padding: "3px 8px",
                   borderRadius: "5px",
+                  letterSpacing: "0.5px",
                 }}
               >
                 {advisory.color_code} WARNING
               </span>
-              <span style={{ fontSize: "12px", color: "#94a3b8" }}>{district.zone.replace(/_/g, " ")}</span>
+              <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                {district.zone.replace(/_/g, " ")}
+              </span>
             </div>
-            <h2 style={{ fontSize: "22px", fontWeight: 800, margin: "2px 0 0 0" }}>
-              {district.name}, <span style={{ color: "#94a3b8", fontWeight: 500 }}>{district.state}</span>
+            <h2 style={{ fontSize: "24px", fontWeight: 800, margin: "2px 0 0 0" }}>
+              {district.name},{" "}
+              <span style={{ color: "#94a3b8", fontWeight: 500 }}>{district.state}</span>
             </h2>
-            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
-              Lat: {district.lat}°N | Lon: {district.lon}°E | Area: {district.area_sq_km.toLocaleString()} km²
+            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "3px" }}>
+              Coordinates: {district.lat}°N, {district.lon}°E &bull; Area:{" "}
+              {district.area_sq_km.toLocaleString()} km²
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "#334155",
-              border: "none",
-              color: "#f8fafc",
-              padding: "6px",
-              borderRadius: "6px",
-              cursor: "pointer",
-            }}
-          >
-            <X size={18} />
-          </button>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {onToggleWatchlist && (
+              <button
+                onClick={() => onToggleWatchlist(district.district_id)}
+                title={isWatchlisted ? "Remove from Watchlist" : "Add to Watchlist"}
+                style={{
+                  background: isWatchlisted ? "rgba(234, 179, 8, 0.2)" : "#334155",
+                  border: isWatchlisted ? "1px solid #eab308" : "1px solid transparent",
+                  color: isWatchlisted ? "#eab308" : "#94a3b8",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "5px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <Star size={16} fill={isWatchlisted ? "#eab308" : "none"} />
+                {isWatchlisted ? "Watching" : "Watch"}
+              </button>
+            )}
+
+            <button
+              onClick={onClose}
+              style={{
+                background: "#334155",
+                border: "none",
+                color: "#f8fafc",
+                padding: "8px",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Content Body */}
@@ -200,68 +214,142 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
               borderRadius: "8px",
             }}
           >
-            <div style={{ fontSize: "11px", fontWeight: 700, color: alertColor, textTransform: "uppercase", marginBottom: "4px" }}>
-              Official IMD 4-Stage Advisory SOP
+            <div
+              style={{
+                fontSize: "11px",
+                fontWeight: 700,
+                color: alertColor,
+                textTransform: "uppercase",
+                marginBottom: "4px",
+                letterSpacing: "0.5px",
+              }}
+            >
+              Official Preparedness & Action Guidance
             </div>
-            <p style={{ fontSize: "13px", color: "#e2e8f0", lineHeight: 1.4, margin: 0 }}>
+            <p style={{ fontSize: "13px", color: "#e2e8f0", lineHeight: 1.45, margin: 0, fontWeight: 500 }}>
               {advisory.action_text}
             </p>
           </div>
 
-          {/* Key Forecast Quantiles Grid */}
+          {/* Key Rainfall Numbers */}
           <div>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: "10px", letterSpacing: "0.5px" }}>
-              Rainfall Expectations & Uncertainty Range
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#94a3b8",
+                textTransform: "uppercase",
+                marginBottom: "10px",
+                letterSpacing: "0.5px",
+              }}
+            >
+              Expected Rainfall & Likely Range (24h)
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
-              <div style={{ background: "#1e293b", padding: "12px", borderRadius: "10px", border: "1px solid #334155" }}>
-                <div style={{ fontSize: "11px", color: "#94a3b8" }}>Expected Rainfall</div>
-                <div style={{ fontSize: "20px", fontWeight: 800, color: "#38bdf8", marginTop: "2px" }}>
-                  {forecast.mean_q50_mm} <span style={{ fontSize: "12px", fontWeight: 500 }}>mm</span>
+              <div
+                style={{
+                  background: "#1e293b",
+                  padding: "14px",
+                  borderRadius: "10px",
+                  border: "1px solid #334155",
+                }}
+              >
+                <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600 }}>Expected Rain</div>
+                <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "2px" }}>
+                  {forecast.mean_q50_mm}{" "}
+                  <span style={{ fontSize: "13px", fontWeight: 500, color: "#94a3b8" }}>mm</span>
                 </div>
-                <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Median Scenario (q50)</div>
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Most likely accumulation</div>
               </div>
 
-              <div style={{ background: "#1e293b", padding: "12px", borderRadius: "10px", border: "1px solid #334155" }}>
-                <div style={{ fontSize: "11px", color: "#94a3b8" }}>Likely Range (q25-q75)</div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: "#f8fafc", marginTop: "2px" }}>
-                  {likelyRange[0]} - {likelyRange[1]} <span style={{ fontSize: "12px", fontWeight: 500 }}>mm</span>
+              <div
+                style={{
+                  background: "#1e293b",
+                  padding: "14px",
+                  borderRadius: "10px",
+                  border: "1px solid #334155",
+                }}
+              >
+                <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600 }}>Likely Range</div>
+                <div style={{ fontSize: "20px", fontWeight: 700, color: "#f8fafc", marginTop: "4px" }}>
+                  {likelyRange[0]}–{likelyRange[1]}{" "}
+                  <span style={{ fontSize: "13px", fontWeight: 500, color: "#94a3b8" }}>mm</span>
                 </div>
-                <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>50% Ensemble Core</div>
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Primary spread</div>
               </div>
 
-              <div style={{ background: "#1e293b", padding: "12px", borderRadius: "10px", border: "1px solid #334155" }}>
-                <div style={{ fontSize: "11px", color: "#94a3b8" }}>High-End Peak (q99)</div>
-                <div style={{ fontSize: "20px", fontWeight: 800, color: alertColor, marginTop: "2px" }}>
-                  {forecast.peak_q99_mm} <span style={{ fontSize: "12px", fontWeight: 500 }}>mm</span>
+              <div
+                style={{
+                  background: "#1e293b",
+                  padding: "14px",
+                  borderRadius: "10px",
+                  border: "1px solid #334155",
+                }}
+              >
+                <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600 }}>Peak Potential</div>
+                <div style={{ fontSize: "24px", fontWeight: 800, color: alertColor, marginTop: "2px" }}>
+                  {forecast.peak_q99_mm}{" "}
+                  <span style={{ fontSize: "13px", fontWeight: 500, color: "#94a3b8" }}>mm</span>
                 </div>
-                <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>99th Percentile Tail</div>
+                <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>Severe localized surge</div>
               </div>
             </div>
           </div>
 
-          {/* Exceedance Probabilities Progress Bars */}
-          <div style={{ background: "#1e293b", padding: "16px", borderRadius: "10px", border: "1px solid #334155" }}>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: "12px", letterSpacing: "0.5px" }}>
-              Extreme Rainfall Exceedance Evidence (Generalized Pareto)
+          {/* Risk Probabilities */}
+          <div
+            style={{
+              background: "#1e293b",
+              padding: "16px",
+              borderRadius: "10px",
+              border: "1px solid #334155",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                fontWeight: 700,
+                color: "#94a3b8",
+                textTransform: "uppercase",
+                marginBottom: "14px",
+                letterSpacing: "0.5px",
+              }}
+            >
+              Threshold Exceedance Probabilities
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               {/* Heavy */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
-                  <span>P(R &gt; 64.5 mm / Heavy Rain)</span>
-                  <strong style={{ color: forecast.prob_heavy_64_5mm > 0.5 ? "#f97316" : "#f8fafc" }}>
-                    {(forecast.prob_heavy_64_5mm * 100).toFixed(0)}%
-                  </strong>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "12px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <span style={{ color: "#e2e8f0" }}>Heavy Rainfall (&gt;64.5 mm)</span>
+                  <span style={{ fontWeight: 700, color: "#facc15" }}>
+                    {Math.round(forecast.prob_heavy_64_5mm * 100)}%
+                  </span>
                 </div>
-                <div style={{ width: "100%", height: "6px", background: "#0f172a", borderRadius: "3px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: "100%",
+                    height: "8px",
+                    background: "#334155",
+                    borderRadius: "4px",
+                    overflow: "hidden",
+                  }}
+                >
                   <div
                     style={{
-                      width: `${Math.min(100, forecast.prob_heavy_64_5mm * 100)}%`,
+                      width: `${Math.min(100, Math.round(forecast.prob_heavy_64_5mm * 100))}%`,
                       height: "100%",
-                      background: "#f97316",
-                      borderRadius: "3px",
+                      background: "#facc15",
+                      borderRadius: "4px",
+                      transition: "width 0.3s ease",
                     }}
                   />
                 </div>
@@ -269,19 +357,35 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
 
               {/* Very Heavy */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
-                  <span>P(R &gt; 115.6 mm / Very Heavy)</span>
-                  <strong style={{ color: forecast.prob_very_heavy_115_6mm > 0.3 ? "#ef4444" : "#f8fafc" }}>
-                    {(forecast.prob_very_heavy_115_6mm * 100).toFixed(0)}%
-                  </strong>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "12px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <span style={{ color: "#e2e8f0" }}>Very Heavy Rainfall (&gt;115.6 mm)</span>
+                  <span style={{ fontWeight: 700, color: "#f97316" }}>
+                    {Math.round(forecast.prob_very_heavy_115_6mm * 100)}%
+                  </span>
                 </div>
-                <div style={{ width: "100%", height: "6px", background: "#0f172a", borderRadius: "3px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: "100%",
+                    height: "8px",
+                    background: "#334155",
+                    borderRadius: "4px",
+                    overflow: "hidden",
+                  }}
+                >
                   <div
                     style={{
-                      width: `${Math.min(100, forecast.prob_very_heavy_115_6mm * 100)}%`,
+                      width: `${Math.min(100, Math.round(forecast.prob_very_heavy_115_6mm * 100))}%`,
                       height: "100%",
-                      background: "#ef4444",
-                      borderRadius: "3px",
+                      background: "#f97316",
+                      borderRadius: "4px",
+                      transition: "width 0.3s ease",
                     }}
                   />
                 </div>
@@ -289,19 +393,35 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
 
               {/* Extremely Heavy */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "3px" }}>
-                  <span>P(R &gt; 204.5 mm / Extremely Heavy)</span>
-                  <strong style={{ color: forecast.prob_extreme_204_5mm > 0.05 ? "#a855f7" : "#f8fafc" }}>
-                    {(forecast.prob_extreme_204_5mm * 100).toFixed(1)}%
-                  </strong>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "12px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <span style={{ color: "#e2e8f0" }}>Extremely Heavy Rainfall (&gt;204.5 mm)</span>
+                  <span style={{ fontWeight: 700, color: "#ef4444" }}>
+                    {Math.round(forecast.prob_extreme_204_5mm * 100)}%
+                  </span>
                 </div>
-                <div style={{ width: "100%", height: "6px", background: "#0f172a", borderRadius: "3px", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: "100%",
+                    height: "8px",
+                    background: "#334155",
+                    borderRadius: "4px",
+                    overflow: "hidden",
+                  }}
+                >
                   <div
                     style={{
-                      width: `${Math.min(100, forecast.prob_extreme_204_5mm * 100)}%`,
+                      width: `${Math.min(100, Math.round(forecast.prob_extreme_204_5mm * 100))}%`,
                       height: "100%",
-                      background: "#a855f7",
-                      borderRadius: "3px",
+                      background: "#ef4444",
+                      borderRadius: "4px",
+                      transition: "width 0.3s ease",
                     }}
                   />
                 </div>
@@ -309,206 +429,240 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
             </div>
           </div>
 
-          {/* "Why This Forecast?" Scientific Explainability Section */}
-          <div style={{ background: "#1e293b", padding: "16px", borderRadius: "10px", border: "1px solid #334155" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-              <HelpCircle size={16} style={{ color: "#38bdf8" }} />
-              <div style={{ fontSize: "12px", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                Why This Forecast? (Scientific Diagnostic)
+          {/* Weather Situation & Why Highlighted */}
+          <div
+            style={{
+              background: "#1e293b",
+              padding: "16px",
+              borderRadius: "10px",
+              border: "1px solid #334155",
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: "11px",
+                  color: "#94a3b8",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  letterSpacing: "0.5px",
+                  marginBottom: "4px",
+                }}
+              >
+                Weather Situation
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: 700, color: "#38bdf8" }}>
+                {weatherSituation}
+              </div>
+              <div style={{ fontSize: "13px", color: "#cbd5e1", marginTop: "4px", lineHeight: 1.4 }}>
+                {explanation?.summary ||
+                  "Active atmospheric flow triggering concentrated moisture convergence over the district."}
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", lineHeight: 1.5 }}>
-              <div>
-                <strong style={{ color: "#f8fafc" }}>1. Weather Situation:</strong>{" "}
-                <span style={{ color: "#94a3b8" }}>
-                  {explanation?.synoptic_regime || advisory.dominant_regime.replace(/_/g, " ")}
-                </span>
+            <div style={{ borderTop: "1px solid #334155", paddingTop: "12px" }}>
+              <div
+                style={{
+                  fontSize: "11px",
+                  color: "#94a3b8",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  letterSpacing: "0.5px",
+                  marginBottom: "4px",
+                }}
+              >
+                Why this district requires attention
               </div>
-              <div>
-                <strong style={{ color: "#f8fafc" }}>2. Dynamical Forcing:</strong>{" "}
-                <span style={{ color: "#94a3b8" }}>
-                  {explanation?.primary_driver || "Strong lower-tropospheric convergence and elevated maritime moisture flux."}
-                </span>
+              <div style={{ fontSize: "13px", color: "#e2e8f0", lineHeight: 1.45 }}>
+                {explanation?.risk_verdict ||
+                  explanation?.primary_driver ||
+                  "The district is situated in the high-impact sector of the current weather system, presenting substantial risk of intense precipitation and localized waterlogging."}
               </div>
+            </div>
+
+            {/* Forecast Confidence */}
+            <div
+              style={{
+                borderTop: "1px solid #334155",
+                paddingTop: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
               <div>
-                <strong style={{ color: "#f8fafc" }}>3. Terrain & Orographic Influence:</strong>{" "}
-                <span style={{ color: "#94a3b8" }}>
-                  {district.zone.includes("OROGRAPHIC")
-                    ? "Western Ghats / Himalayan ridge acts as a mechanical barrier causing intense precipitation enhancement."
-                    : "Lowland or coastal topography allows synoptic convective cell translation."}
-                </span>
+                <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", fontWeight: 700 }}>
+                  Forecast Confidence
+                </div>
+                <div style={{ fontSize: "12px", color: "#cbd5e1", marginTop: "2px" }}>
+                  {confidenceExplanation}
+                </div>
               </div>
-              <div>
-                <strong style={{ color: "#f8fafc" }}>4. NWP Bias Correction:</strong>{" "}
-                <span style={{ color: "#94a3b8" }}>
-                  {explanation?.bias_adjustment || "Model adjusted for operational systematic error distributions."}
-                </span>
-              </div>
-              <div>
-                <strong style={{ color: "#f8fafc" }}>5. Confidence Level:</strong>{" "}
-                <span style={{ color: "#34d399", fontWeight: 600 }}>{forecast.confidence || "High"}</span>
-              </div>
+              <span
+                style={{
+                  background: `${confidenceColor}20`,
+                  color: confidenceColor,
+                  border: `1px solid ${confidenceColor}50`,
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  fontWeight: 800,
+                  fontSize: "12px",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {confidenceText}
+              </span>
             </div>
           </div>
 
-          {/* 3-Day Forecast Timeline (24h, 48h, 72h) */}
+          {/* 3-Day Evolution Timeline */}
           {timeline && timeline.length > 0 && (
             <div>
-              <div style={{ fontSize: "12px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: "10px", letterSpacing: "0.5px" }}>
-                3-Day Rainfall Progression (Depression Evolution)
+              <div
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  color: "#94a3b8",
+                  textTransform: "uppercase",
+                  marginBottom: "10px",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                3-Day Horizon Progression
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-                {timeline.map((slot) => (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
+                {timeline.map((step) => (
                   <div
-                    key={slot.lead_hours}
+                    key={step.lead_hours}
                     style={{
                       background: "#1e293b",
                       border: "1px solid #334155",
-                      padding: "10px",
+                      borderTop: `3px solid ${step.risk_color}`,
                       borderRadius: "8px",
+                      padding: "12px",
                       textAlign: "center",
                     }}
                   >
-                    <div style={{ fontSize: "11px", fontWeight: 600, color: "#94a3b8" }}>{slot.label}</div>
-                    <div style={{ fontSize: "18px", fontWeight: 800, color: "#f8fafc", margin: "4px 0" }}>
-                      {slot.expected_rain_mm} <span style={{ fontSize: "11px", fontWeight: 500 }}>mm</span>
+                    <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: 600 }}>
+                      {step.label}
                     </div>
-                    <span
+                    <div
                       style={{
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        padding: "2px 6px",
-                        borderRadius: "4px",
-                        background:
-                          slot.risk_color === "RED"
-                            ? "#ef4444"
-                            : slot.risk_color === "ORANGE"
-                            ? "#f97316"
-                            : slot.risk_color === "YELLOW"
-                            ? "#eab308"
-                            : "#22c55e",
-                        color: "#ffffff",
+                        fontSize: "20px",
+                        fontWeight: 800,
+                        color: step.risk_color,
+                        marginTop: "4px",
                       }}
                     >
-                      {slot.risk_color}
-                    </span>
+                      {step.expected_rain_mm}
+                      <span style={{ fontSize: "11px", fontWeight: 500, color: "#94a3b8", marginLeft: "2px" }}>
+                        mm
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>
+                      Expected 24h sum
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Model Comparison: Raw NWP vs Global QM vs Regime MoE */}
+          {/* Optional Collapsible: Forecast Comparison vs Standard Models */}
           {comparison && (
-            <div style={{ background: "#1e293b", padding: "16px", borderRadius: "10px", border: "1px solid #334155" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                <div style={{ fontSize: "12px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  Model Value-Add Comparison
-                </div>
-                <span
+            <div
+              style={{
+                border: "1px solid #334155",
+                borderRadius: "8px",
+                background: "#1e293b",
+                overflow: "hidden",
+              }}
+            >
+              <button
+                onClick={() => setShowComparison(!showComparison)}
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  background: "transparent",
+                  border: "none",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  color: "#94a3b8",
+                  fontSize: "12px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span>Comparison with standard baseline forecast</span>
+                {showComparison ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+
+              {showComparison && (
+                <div
                   style={{
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    padding: "2px 6px",
-                    borderRadius: "4px",
-                    background: comparison.correction_delta_mm > 0 ? "rgba(56, 189, 248, 0.2)" : "rgba(244, 63, 94, 0.2)",
-                    color: comparison.correction_delta_mm > 0 ? "#38bdf8" : "#fb7185",
+                    padding: "14px 16px",
+                    borderTop: "1px solid #334155",
+                    background: "#0f172a",
+                    fontSize: "12px",
+                    color: "#cbd5e1",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
                   }}
                 >
-                  Δ {comparison.correction_delta_mm > 0 ? `+${comparison.correction_delta_mm}` : comparison.correction_delta_mm} mm
-                </span>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-                <div style={{ background: "#0f172a", padding: "8px 10px", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "10px", color: "#94a3b8" }}>Raw NWP</div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#cbd5e1" }}>
-                    {comparison.raw_nwp_median_mm} mm
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <div style={{ background: "#1e293b", padding: "10px", borderRadius: "6px" }}>
+                      <div style={{ color: "#94a3b8", fontSize: "11px" }}>Standard Numerical Model</div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#cbd5e1", marginTop: "2px" }}>
+                        {comparison.raw_nwp_median_mm} mm
+                      </div>
+                    </div>
+                    <div style={{ background: "#1e293b", padding: "10px", borderRadius: "6px" }}>
+                      <div style={{ color: "#38bdf8", fontSize: "11px" }}>Regime-Aware Corrected</div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#38bdf8", marginTop: "2px" }}>
+                        {comparison.moe_corrected_median_mm} mm
+                        <span style={{ fontSize: "11px", color: comparison.correction_delta_mm >= 0 ? "#4ade80" : "#f87171", marginLeft: "4px" }}>
+                          ({comparison.correction_delta_mm >= 0 ? "+" : ""}{comparison.correction_delta_mm} mm)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ color: "#94a3b8", fontSize: "11px", lineHeight: 1.4 }}>
+                    Standard weather models often underestimate heavy convective precipitation during extreme atmospheric regimes. The regime-aware adjustment resolves localized terrain and convergence effects.
                   </div>
                 </div>
-                <div style={{ background: "#0f172a", padding: "8px 10px", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "10px", color: "#94a3b8" }}>Global QM (xsdba)</div>
-                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#cbd5e1" }}>
-                    {comparison.global_qm_median_mm} mm
-                  </div>
-                </div>
-                <div style={{ background: "#0f172a", padding: "8px 10px", borderRadius: "6px", border: "1px solid #0284c7" }}>
-                  <div style={{ fontSize: "10px", color: "#38bdf8" }}>Regime MoE</div>
-                  <div style={{ fontSize: "15px", fontWeight: 800, color: "#38bdf8" }}>
-                    {comparison.moe_corrected_median_mm} mm
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ fontSize: "11px", color: "#64748b", marginTop: "8px" }}>
-                Bias Assessment: <em>{comparison.nwp_bias_corrected}</em>
-              </div>
+              )}
             </div>
           )}
 
-          {/* Collapsible Technical Uncertainty (7 Quantiles) */}
-          <div style={{ border: "1px solid #334155", borderRadius: "8px", overflow: "hidden" }}>
-            <button
-              onClick={() => setShowTechnicalUncertainty(!showTechnicalUncertainty)}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                background: "#1e293b",
-                border: "none",
-                color: "#cbd5e1",
-                fontSize: "12px",
-                fontWeight: 600,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                cursor: "pointer",
-              }}
-            >
-              <span>Detailed Uncertainty Distribution (7 Quantiles)</span>
-              <span>{showTechnicalUncertainty ? "▲ Hide" : "▼ Show"}</span>
-            </button>
-
-            {showTechnicalUncertainty && forecast.quantiles && (
-              <div style={{ padding: "12px", background: "#0f172a", display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "4px", textAlign: "center" }}>
-                {Object.entries(forecast.quantiles).map(([qName, val]) => (
-                  <div key={qName} style={{ background: "#1e293b", padding: "6px 2px", borderRadius: "4px" }}>
-                    <div style={{ fontSize: "9px", color: "#94a3b8" }}>{qName}</div>
-                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#f8fafc" }}>{val}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Forecaster Override CTA Button */}
-          <div style={{ marginTop: "10px" }}>
-            <button
-              onClick={() => onOpenOverride(district)}
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: "8px",
-                border: "none",
-                background: "#0284c7",
-                color: "#ffffff",
-                fontSize: "13px",
-                fontWeight: 700,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                boxShadow: "0 2px 6px rgba(2, 132, 199, 0.4)",
-              }}
-            >
-              <UserCheck size={16} />
-              Review / Apply Forecaster Override
-            </button>
-            <div style={{ fontSize: "11px", color: "#64748b", textAlign: "center", marginTop: "6px" }}>
-              Logged with cryptographic SHA-256 provenance to forecaster audit trail.
+          {/* Forecaster Note / Adjustment trigger (optional, clean) */}
+          {onOpenOverride && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
+              <button
+                onClick={() => onOpenOverride(district)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid #334155",
+                  color: "#94a3b8",
+                  padding: "8px 14px",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <Sliders size={14} /> Forecaster Operational Note / Override
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

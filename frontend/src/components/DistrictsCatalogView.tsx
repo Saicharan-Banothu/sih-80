@@ -3,85 +3,35 @@ import {
   Search,
   Filter,
   ShieldAlert,
-  Sliders,
   ArrowRight,
   CloudRain,
   Compass,
   AlertTriangle,
-  ChevronDown,
+  Star,
+  Layers,
+  ChevronRight,
 } from "lucide-react";
-
-export interface DistrictAdvisory {
-  district_id: string;
-  name: string;
-  state: string;
-  zone: string;
-  lat: number;
-  lon: number;
-  area_sq_km: number;
-  forecast: {
-    mean_q50_mm: number;
-    likely_range_q25_q75?: [number, number];
-    max_q90_mm: number;
-    peak_q99_mm: number;
-    quantiles?: {
-      q10: number;
-      q25: number;
-      q50: number;
-      q75: number;
-      q90: number;
-      q95: number;
-      q99: number;
-    };
-    prob_heavy_64_5mm: number;
-    prob_very_heavy_115_6mm: number;
-    prob_extreme_204_5mm: number;
-    confidence?: string;
-  };
-  advisory: {
-    color_code: "RED" | "ORANGE" | "YELLOW" | "GREEN";
-    severity: number;
-    action_text: string;
-    dominant_regime: string;
-  };
-  comparison?: {
-    raw_nwp_median_mm: number;
-    global_qm_median_mm: number;
-    moe_corrected_median_mm: number;
-    correction_delta_mm: number;
-    nwp_bias_corrected: string;
-  };
-  explanation?: {
-    summary: string;
-    synoptic_regime: string;
-    primary_driver: string;
-    bias_adjustment: string;
-    risk_verdict: string;
-  };
-  timeline?: Array<{
-    lead_hours: number;
-    label: string;
-    expected_rain_mm: number;
-    risk_color: string;
-  }>;
-  forecaster_override?: any;
-}
+import { DistrictAdvisory } from "./IndiaMap";
 
 interface DistrictsCatalogViewProps {
   districts: DistrictAdvisory[];
   onSelectDistrict: (district: DistrictAdvisory) => void;
-  onOpenOverride: (district: DistrictAdvisory) => void;
+  onOpenOverride?: (district: DistrictAdvisory) => void;
+  watchlist: string[];
+  onToggleWatchlist: (districtId: string) => void;
 }
 
 export const DistrictsCatalogView: React.FC<DistrictsCatalogViewProps> = ({
   districts,
   onSelectDistrict,
-  onOpenOverride,
+  watchlist,
+  onToggleWatchlist,
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [severityFilter, setSeverityFilter] = useState<string>("ALL");
   const [zoneFilter, setZoneFilter] = useState<string>("ALL");
   const [sortBy, setSortBy] = useState<"severity" | "rain" | "prob" | "name">("severity");
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState<boolean>(false);
 
   // Extract unique zones
   const uniqueZones = useMemo(() => {
@@ -94,13 +44,18 @@ export const DistrictsCatalogView: React.FC<DistrictsCatalogViewProps> = ({
   const filteredDistricts = useMemo(() => {
     return districts
       .filter((d) => {
+        // Watchlist filter
+        if (showWatchlistOnly && !watchlist.includes(d.district_id)) {
+          return false;
+        }
+
         // Search term filter
         if (searchTerm.trim() !== "") {
           const q = searchTerm.toLowerCase();
           const matchName = d.name.toLowerCase().includes(q);
           const matchState = d.state.toLowerCase().includes(q);
-          const matchId = d.district_id.toLowerCase().includes(q);
-          if (!matchName && !matchState && !matchId) return false;
+          const matchZone = d.zone.toLowerCase().includes(q);
+          if (!matchName && !matchState && !matchZone) return false;
         }
 
         // Severity filter
@@ -123,155 +78,228 @@ export const DistrictsCatalogView: React.FC<DistrictsCatalogViewProps> = ({
           return b.forecast.mean_q50_mm - a.forecast.mean_q50_mm;
         }
         if (sortBy === "prob") {
-          return b.forecast.prob_heavy_64_5mm - a.forecast.prob_heavy_64_5mm;
+          return b.forecast.prob_very_heavy_115_6mm - a.forecast.prob_very_heavy_115_6mm;
         }
         if (sortBy === "name") {
           return a.name.localeCompare(b.name);
         }
         return 0;
       });
-  }, [districts, searchTerm, severityFilter, zoneFilter, sortBy]);
+  }, [districts, searchTerm, severityFilter, zoneFilter, sortBy, showWatchlistOnly, watchlist]);
 
-  const getColorTheme = (code: string) => {
-    switch (code) {
-      case "RED":
-        return {
-          bg: "#dc2626",
-          lightBg: "rgba(220, 38, 38, 0.12)",
-          border: "#ef4444",
-          text: "#fca5a5",
-          title: "Take Action",
-        };
-      case "ORANGE":
-        return {
-          bg: "#ea580c",
-          lightBg: "rgba(234, 88, 12, 0.12)",
-          border: "#f97316",
-          text: "#fdba74",
-          title: "Be Prepared",
-        };
-      case "YELLOW":
-        return {
-          bg: "#ca8a04",
-          lightBg: "rgba(202, 138, 4, 0.12)",
-          border: "#eab308",
-          text: "#fef08a",
-          title: "Be Updated",
-        };
-      case "GREEN":
-      default:
-        return {
-          bg: "#16a34a",
-          lightBg: "rgba(22, 163, 74, 0.12)",
-          border: "#22c55e",
-          text: "#86efac",
-          title: "No Warning",
-        };
-    }
+  // Counts by alert level
+  const alertCounts = useMemo(() => {
+    return {
+      RED: districts.filter((d) => d.advisory.color_code === "RED").length,
+      ORANGE: districts.filter((d) => d.advisory.color_code === "ORANGE").length,
+      YELLOW: districts.filter((d) => d.advisory.color_code === "YELLOW").length,
+      GREEN: districts.filter((d) => d.advisory.color_code === "GREEN").length,
+    };
+  }, [districts]);
+
+  const humanRegimeNames: Record<string, string> = {
+    MONSOON_DEPRESSION_LOW: "Monsoon Depression",
+    OROGRAPHIC_WESTERN_GHATS: "Western Ghats Uplift",
+    ACTIVE_MONSOON: "Active Monsoon Surge",
+    BREAK_MONSOON: "Break Monsoon",
+    COASTAL_CONVECTIVE: "Coastal Convective",
+    WESTERN_DISTURBANCE: "Western Disturbance",
   };
 
   return (
-    <div style={{ padding: "1.5rem 2rem", maxWidth: "1600px", margin: "0 auto" }}>
-      {/* Header & Controls Section */}
+    <div style={{ padding: "20px 24px", maxWidth: "1400px", margin: "0 auto", color: "#f8fafc" }}>
+      {/* Title & Overview Summary */}
       <div
         style={{
-          background: "linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.7) 100%)",
-          border: "1px solid rgba(56, 189, 248, 0.2)",
-          borderRadius: "12px",
-          padding: "1.25rem 1.5rem",
-          marginBottom: "1.5rem",
-          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.4)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          marginBottom: "20px",
+          flexWrap: "wrap",
+          gap: "12px",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "1rem" }}>
-          <div>
-            <h1 style={{ fontSize: "1.4rem", fontWeight: 800, color: "#f8fafc", margin: 0, display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <Compass size={24} color="#38bdf8" />
-              District Operational Advisories & Risk Dossier
-            </h1>
-            <p style={{ margin: "0.25rem 0 0", fontSize: "0.82rem", color: "#94a3b8" }}>
-              Continuous district-scale probabilistic rainfall intelligence across 17 monitored meteorological jurisdictions.
-            </p>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "#cbd5e1" }}>
-            <span style={{ padding: "0.3rem 0.6rem", background: "rgba(30, 41, 59, 0.8)", borderRadius: "6px", border: "1px solid var(--border-subtle)" }}>
-              Total Monitored: <strong style={{ color: "#38bdf8" }}>{districts.length}</strong>
-            </span>
-            <span style={{ padding: "0.3rem 0.6rem", background: "rgba(220, 38, 38, 0.15)", borderRadius: "6px", border: "1px solid rgba(239, 68, 68, 0.3)", color: "#fca5a5" }}>
-              Red/Orange: <strong>{districts.filter((d) => d.advisory.color_code === "RED" || d.advisory.color_code === "ORANGE").length}</strong>
-            </span>
-          </div>
+        <div>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, margin: 0, color: "#f8fafc" }}>
+            District Rainfall Risk Directory
+          </h1>
+          <p style={{ fontSize: "13px", color: "#94a3b8", margin: "4px 0 0 0" }}>
+            Real-time advisory levels, expected rainfall accumulations, and heavy precipitation likelihoods across all monitored districts.
+          </p>
         </div>
 
-        {/* Filter and Search Controls */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0.75rem", alignItems: "center" }}>
-          {/* Search Input */}
-          <div style={{ position: "relative" }}>
-            <Search size={16} color="#94a3b8" style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)" }} />
-            <input
-              type="text"
-              placeholder="Search district, state, or ID (e.g., Wayanad, Puri, KL_WAY)..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "0.6rem 0.75rem 0.6rem 2.4rem",
-                borderRadius: "8px",
-                background: "rgba(2, 6, 23, 0.6)",
-                border: "1px solid rgba(56, 189, 248, 0.3)",
-                color: "#f8fafc",
-                fontSize: "0.85rem",
-                outline: "none",
-              }}
-            />
+        {/* Quick Alert Summary Badges */}
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <div
+            onClick={() => {
+              setSeverityFilter(severityFilter === "RED" ? "ALL" : "RED");
+              setShowWatchlistOnly(false);
+            }}
+            style={{
+              cursor: "pointer",
+              background: severityFilter === "RED" ? "#ef4444" : "rgba(239, 68, 68, 0.15)",
+              color: severityFilter === "RED" ? "#ffffff" : "#ef4444",
+              border: "1px solid rgba(239, 68, 68, 0.4)",
+              borderRadius: "6px",
+              padding: "4px 10px",
+              fontSize: "12px",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <span>{alertCounts.RED} High Attention (Red)</span>
           </div>
 
-          {/* Severity Filter */}
-          <div style={{ display: "flex", gap: "0.3rem", background: "rgba(2, 6, 23, 0.6)", padding: "0.25rem", borderRadius: "8px", border: "1px solid var(--border-subtle)" }}>
-            {["ALL", "RED", "ORANGE", "YELLOW", "GREEN"].map((sev) => {
-              const isActive = severityFilter === sev;
-              let activeColor = "#38bdf8";
-              if (sev === "RED") activeColor = "#ef4444";
-              if (sev === "ORANGE") activeColor = "#f97316";
-              if (sev === "YELLOW") activeColor = "#eab308";
-              if (sev === "GREEN") activeColor = "#22c55e";
-
-              return (
-                <button
-                  key={sev}
-                  onClick={() => setSeverityFilter(sev)}
-                  style={{
-                    padding: "0.4rem 0.7rem",
-                    borderRadius: "6px",
-                    fontSize: "0.75rem",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    border: "none",
-                    background: isActive ? activeColor : "transparent",
-                    color: isActive ? (sev === "YELLOW" ? "#000" : "#fff") : "#94a3b8",
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {sev}
-                </button>
-              );
-            })}
+          <div
+            onClick={() => {
+              setSeverityFilter(severityFilter === "ORANGE" ? "ALL" : "ORANGE");
+              setShowWatchlistOnly(false);
+            }}
+            style={{
+              cursor: "pointer",
+              background: severityFilter === "ORANGE" ? "#f97316" : "rgba(249, 115, 22, 0.15)",
+              color: severityFilter === "ORANGE" ? "#ffffff" : "#f97316",
+              border: "1px solid rgba(249, 115, 22, 0.4)",
+              borderRadius: "6px",
+              padding: "4px 10px",
+              fontSize: "12px",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <span>{alertCounts.ORANGE} Elevated (Orange)</span>
           </div>
 
-          {/* Zone Filter */}
+          <div
+            onClick={() => {
+              setSeverityFilter(severityFilter === "YELLOW" ? "ALL" : "YELLOW");
+              setShowWatchlistOnly(false);
+            }}
+            style={{
+              cursor: "pointer",
+              background: severityFilter === "YELLOW" ? "#eab308" : "rgba(234, 179, 8, 0.15)",
+              color: severityFilter === "YELLOW" ? "#000000" : "#eab308",
+              border: "1px solid rgba(234, 179, 8, 0.4)",
+              borderRadius: "6px",
+              padding: "4px 10px",
+              fontSize: "12px",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <span>{alertCounts.YELLOW} Watch (Yellow)</span>
+          </div>
+
+          <div
+            onClick={() => {
+              setShowWatchlistOnly(!showWatchlistOnly);
+              setSeverityFilter("ALL");
+            }}
+            style={{
+              cursor: "pointer",
+              background: showWatchlistOnly ? "rgba(234, 179, 8, 0.3)" : "rgba(255, 255, 255, 0.05)",
+              color: showWatchlistOnly ? "#eab308" : "#94a3b8",
+              border: showWatchlistOnly ? "1px solid #eab308" : "1px solid #334155",
+              borderRadius: "6px",
+              padding: "4px 10px",
+              fontSize: "12px",
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <Star size={13} fill={showWatchlistOnly ? "#eab308" : "none"} />
+            <span>Watchlist ({watchlist.length})</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Control Bar: Search & Filters */}
+      <div
+        style={{
+          display: "flex",
+          gap: "12px",
+          background: "#1e293b",
+          padding: "12px 16px",
+          borderRadius: "8px",
+          border: "1px solid #334155",
+          marginBottom: "16px",
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        {/* Search */}
+        <div style={{ position: "relative", flex: "1 1 240px", minWidth: "200px" }}>
+          <Search
+            size={16}
+            style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#64748b" }}
+          />
+          <input
+            type="text"
+            placeholder="Search district, state, or zone..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "7px 10px 7px 32px",
+              background: "#0f172a",
+              border: "1px solid #334155",
+              borderRadius: "6px",
+              color: "#f8fafc",
+              fontSize: "13px",
+              outline: "none",
+            }}
+          />
+        </div>
+
+        {/* Severity filter dropdown */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", color: "#94a3b8" }}>Advisory:</span>
+          <select
+            value={severityFilter}
+            onChange={(e) => {
+              setSeverityFilter(e.target.value);
+              setShowWatchlistOnly(false);
+            }}
+            style={{
+              background: "#0f172a",
+              border: "1px solid #334155",
+              color: "#f8fafc",
+              padding: "7px 10px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              cursor: "pointer",
+            }}
+          >
+            <option value="ALL">All Advisory Levels</option>
+            <option value="RED">Red (Take Action)</option>
+            <option value="ORANGE">Orange (Be Prepared)</option>
+            <option value="YELLOW">Yellow (Be Aware)</option>
+            <option value="GREEN">Green (Normal / No Warning)</option>
+          </select>
+        </div>
+
+        {/* Zone filter dropdown */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", color: "#94a3b8" }}>Zone:</span>
           <select
             value={zoneFilter}
             onChange={(e) => setZoneFilter(e.target.value)}
             style={{
-              padding: "0.55rem 0.75rem",
-              borderRadius: "8px",
-              background: "rgba(2, 6, 23, 0.8)",
-              border: "1px solid var(--border-subtle)",
-              color: "#cbd5e1",
-              fontSize: "0.8rem",
+              background: "#0f172a",
+              border: "1px solid #334155",
+              color: "#f8fafc",
+              padding: "7px 10px",
+              borderRadius: "6px",
+              fontSize: "12px",
               cursor: "pointer",
-              outline: "none",
             }}
           >
             <option value="ALL">All Meteorological Zones</option>
@@ -281,224 +309,208 @@ export const DistrictsCatalogView: React.FC<DistrictsCatalogViewProps> = ({
               </option>
             ))}
           </select>
+        </div>
 
-          {/* Sort By Dropdown */}
+        {/* Sort by */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", color: "#94a3b8" }}>Sort:</span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
             style={{
-              padding: "0.55rem 0.75rem",
-              borderRadius: "8px",
-              background: "rgba(2, 6, 23, 0.8)",
-              border: "1px solid var(--border-subtle)",
-              color: "#cbd5e1",
-              fontSize: "0.8rem",
+              background: "#0f172a",
+              border: "1px solid #334155",
+              color: "#f8fafc",
+              padding: "7px 10px",
+              borderRadius: "6px",
+              fontSize: "12px",
               cursor: "pointer",
-              outline: "none",
             }}
           >
-            <option value="severity">Sort by: Severity Level</option>
-            <option value="rain">Sort by: Expected Rain (q50)</option>
-            <option value="prob">Sort by: Heavy Rain Probability</option>
-            <option value="name">Sort by: Name (A-Z)</option>
+            <option value="severity">Highest Risk First</option>
+            <option value="rain">Expected Rain (High to Low)</option>
+            <option value="prob">Very Heavy Rain Probability</option>
+            <option value="name">District Name (A-Z)</option>
           </select>
         </div>
       </div>
 
-      {/* District Cards Grid */}
+      {/* District Cards List */}
       {filteredDistricts.length === 0 ? (
         <div
           style={{
+            background: "#1e293b",
+            padding: "40px 20px",
             textAlign: "center",
-            padding: "4rem 2rem",
-            background: "rgba(15, 23, 42, 0.4)",
-            borderRadius: "12px",
-            border: "1px dashed var(--border-subtle)",
+            borderRadius: "8px",
+            border: "1px solid #334155",
+            color: "#94a3b8",
           }}
         >
-          <AlertTriangle size={36} color="#94a3b8" style={{ marginBottom: "1rem" }} />
-          <h3 style={{ color: "#cbd5e1", fontSize: "1.1rem", margin: "0 0 0.5rem" }}>No matching districts found</h3>
-          <p style={{ color: "#64748b", fontSize: "0.85rem", margin: 0 }}>
-            Try resetting your search query or changing severity and zone filters.
+          <CloudRain size={36} style={{ margin: "0 auto 10px auto", color: "#64748b" }} />
+          <h3 style={{ fontSize: "16px", color: "#f8fafc", margin: "0 0 6px 0" }}>No districts found</h3>
+          <p style={{ fontSize: "13px", margin: 0 }}>
+            No districts match the selected filters or search terms. Try clearing filters or search queries.
           </p>
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))",
-            gap: "1.25rem",
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {filteredDistricts.map((d) => {
-            const theme = getColorTheme(d.advisory.color_code);
-            const isRedOrOrange = d.advisory.color_code === "RED" || d.advisory.color_code === "ORANGE";
+            const isWatch = watchlist.includes(d.district_id);
+            const alertColor =
+              d.advisory.color_code === "RED"
+                ? "#ef4444"
+                : d.advisory.color_code === "ORANGE"
+                ? "#f97316"
+                : d.advisory.color_code === "YELLOW"
+                ? "#eab308"
+                : "#22c55e";
+
+            const likelyRange = d.forecast.likely_range_q25_q75 ?? [
+              Math.round(d.forecast.mean_q50_mm * 0.75),
+              Math.round(d.forecast.mean_q50_mm * 1.25),
+            ];
+
+            const weatherSituation =
+              humanRegimeNames[d.advisory.dominant_regime] ||
+              d.advisory.dominant_regime.replace(/_/g, " ");
 
             return (
               <div
                 key={d.district_id}
+                onClick={() => onSelectDistrict(d)}
                 style={{
-                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.8) 100%)",
-                  borderRadius: "12px",
-                  border: `1px solid ${isRedOrOrange ? theme.border : "var(--border-subtle)"}`,
-                  borderLeft: `6px solid ${theme.bg}`,
-                  padding: "1.25rem",
-                  boxShadow: isRedOrOrange
-                    ? `0 10px 25px -5px ${theme.lightBg}, 0 4px 6px -2px rgba(0, 0, 0, 0.3)`
-                    : "0 4px 15px rgba(0, 0, 0, 0.3)",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
-                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                  background: "#1e293b",
+                  border: "1px solid #334155",
+                  borderLeft: `5px solid ${alertColor}`,
+                  borderRadius: "8px",
+                  padding: "14px 18px",
+                  display: "grid",
+                  gridTemplateColumns: "1.8fr 1.2fr 1.2fr 1.5fr auto",
+                  alignItems: "center",
+                  gap: "16px",
+                  cursor: "pointer",
+                  transition: "transform 0.1s ease, border-color 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#475569";
+                  e.currentTarget.style.borderLeftColor = alertColor;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#334155";
+                  e.currentTarget.style.borderLeftColor = alertColor;
                 }}
               >
+                {/* District & State */}
                 <div>
-                  {/* Top Header */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <span style={{ fontSize: "1.2rem", fontWeight: 800, color: "#f8fafc" }}>{d.name}</span>
-                        <span style={{ fontSize: "0.72rem", fontFamily: "var(--font-mono)", color: "#64748b" }}>
-                          [{d.district_id}]
-                        </span>
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.15rem" }}>
-                        {d.state} • {d.zone.replace(/_/g, " ")}
-                      </div>
-                    </div>
-
-                    <div style={{ textAlign: "right" }}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          background: theme.bg,
-                          color: d.advisory.color_code === "YELLOW" ? "#000" : "#fff",
-                          padding: "0.3rem 0.75rem",
-                          borderRadius: "6px",
-                          fontSize: "0.75rem",
-                          fontWeight: 800,
-                          letterSpacing: "0.5px",
-                        }}
-                      >
-                        {d.advisory.color_code}
-                      </span>
-                      <div style={{ fontSize: "0.65rem", color: theme.text, marginTop: "0.2rem", fontWeight: 600 }}>
-                        {theme.title}
-                      </div>
-                    </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span
+                      style={{
+                        background: alertColor,
+                        color: "#ffffff",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                      }}
+                    >
+                      {d.advisory.color_code}
+                    </span>
+                    <span style={{ fontSize: "16px", fontWeight: 700, color: "#f8fafc" }}>
+                      {d.name}
+                    </span>
+                    <span style={{ fontSize: "13px", color: "#94a3b8" }}>({d.state})</span>
                   </div>
+                  <div style={{ fontSize: "11px", color: "#64748b", marginTop: "3px" }}>
+                    {d.zone.replace(/_/g, " ")} &bull; {weatherSituation}
+                  </div>
+                </div>
 
-                  {/* 3-Part Metric Display */}
+                {/* Expected Rainfall */}
+                <div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>Expected (24h)</div>
+                  <div style={{ fontSize: "18px", fontWeight: 800, color: "#38bdf8", marginTop: "1px" }}>
+                    {d.forecast.mean_q50_mm}{" "}
+                    <span style={{ fontSize: "11px", fontWeight: 500, color: "#94a3b8" }}>mm</span>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#64748b" }}>
+                    Range: {likelyRange[0]}–{likelyRange[1]} mm
+                  </div>
+                </div>
+
+                {/* Exceedance Probabilities */}
+                <div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>Heavy Rain Risk</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginTop: "2px" }}>
+                    <span
+                      style={{
+                        fontSize: "15px",
+                        fontWeight: 700,
+                        color: d.forecast.prob_very_heavy_115_6mm > 0.4 ? "#f97316" : "#cbd5e1",
+                      }}
+                    >
+                      {Math.round(d.forecast.prob_very_heavy_115_6mm * 100)}%
+                    </span>
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>(&gt;115 mm)</span>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#64748b" }}>
+                    &gt;64 mm: {Math.round(d.forecast.prob_heavy_64_5mm * 100)}%
+                  </div>
+                </div>
+
+                {/* Advisory Snippet */}
+                <div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>Advisory Guidance</div>
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr 1fr",
-                      gap: "0.5rem",
-                      background: "rgba(2, 6, 23, 0.6)",
-                      padding: "0.75rem",
-                      borderRadius: "8px",
-                      marginBottom: "0.75rem",
-                      border: "1px solid rgba(56, 189, 248, 0.1)",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: "0.62rem", color: "#94a3b8", fontWeight: 600 }}>EXPECTED (q50)</div>
-                      <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#38bdf8", fontFamily: "var(--font-mono)" }}>
-                        {d.forecast.mean_q50_mm.toFixed(1)} <span style={{ fontSize: "0.65rem", color: "#94a3b8" }}>mm</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: "0.62rem", color: "#94a3b8", fontWeight: 600 }}>LIKELY (q25-q75)</div>
-                      <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#e2e8f0", fontFamily: "var(--font-mono)", marginTop: "0.2rem" }}>
-                        {d.forecast.likely_range_q25_q75
-                          ? `${d.forecast.likely_range_q25_q75[0].toFixed(0)}-${d.forecast.likely_range_q25_q75[1].toFixed(0)} mm`
-                          : `${(d.forecast.mean_q50_mm * 0.8).toFixed(0)}-${(d.forecast.mean_q50_mm * 1.25).toFixed(0)} mm`}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: "0.62rem", color: "#94a3b8", fontWeight: 600 }}>PEAK TAIL (q99)</div>
-                      <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#f87171", fontFamily: "var(--font-mono)" }}>
-                        {d.forecast.peak_q99_mm.toFixed(1)} <span style={{ fontSize: "0.65rem", color: "#94a3b8" }}>mm</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Tail Probabilities */}
-                  <div style={{ marginBottom: "0.75rem", fontSize: "0.75rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.25rem", color: "#cbd5e1" }}>
-                      <span>Heavy Rain &gt; 64.5 mm:</span>
-                      <strong style={{ color: d.forecast.prob_heavy_64_5mm > 0.5 ? "#f87171" : "#94a3b8", fontFamily: "var(--font-mono)" }}>
-                        {(d.forecast.prob_heavy_64_5mm * 100).toFixed(1)}%
-                      </strong>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
-                      <span>Very Heavy &gt; 115.6 mm:</span>
-                      <strong style={{ color: d.forecast.prob_very_heavy_115_6mm > 0.3 ? "#f87171" : "#94a3b8", fontFamily: "var(--font-mono)" }}>
-                        {(d.forecast.prob_very_heavy_115_6mm * 100).toFixed(1)}%
-                      </strong>
-                    </div>
-                  </div>
-
-                  {/* Operational Action Text */}
-                  <div
-                    style={{
-                      background: theme.lightBg,
-                      border: `1px solid ${theme.border}44`,
-                      borderRadius: "6px",
-                      padding: "0.6rem 0.75rem",
-                      fontSize: "0.75rem",
-                      color: "#f8fafc",
-                      lineHeight: 1.45,
-                      marginBottom: "1rem",
+                      fontSize: "12px",
+                      color: "#cbd5e1",
+                      marginTop: "2px",
+                      lineHeight: 1.3,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
                     }}
                   >
                     {d.advisory.action_text}
                   </div>
                 </div>
 
-                {/* Card Action Buttons */}
-                <div style={{ display: "flex", gap: "0.5rem", borderTop: "1px solid var(--border-subtle)", paddingTop: "0.75rem" }}>
+                {/* Actions: Watchlist & Arrow */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <button
-                    onClick={() => onSelectDistrict(d)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleWatchlist(d.district_id);
+                    }}
+                    title={isWatch ? "Remove from watchlist" : "Add to watchlist"}
                     style={{
-                      flex: 1,
-                      padding: "0.5rem 0.75rem",
+                      background: isWatch ? "rgba(234, 179, 8, 0.2)" : "transparent",
+                      border: "none",
+                      color: isWatch ? "#eab308" : "#64748b",
+                      padding: "6px",
                       borderRadius: "6px",
-                      background: "rgba(56, 189, 248, 0.15)",
-                      border: "1px solid rgba(56, 189, 248, 0.4)",
-                      color: "#38bdf8",
-                      fontSize: "0.78rem",
-                      fontWeight: 700,
                       cursor: "pointer",
                       display: "flex",
                       alignItems: "center",
-                      justifyContent: "center",
-                      gap: "0.4rem",
                     }}
                   >
-                    Inspect Dossier <ArrowRight size={14} />
+                    <Star size={16} fill={isWatch ? "#eab308" : "none"} />
                   </button>
 
-                  <button
-                    onClick={() => onOpenOverride(d)}
-                    title="Certified Forecaster Override & Review"
+                  <div
                     style={{
-                      padding: "0.5rem 0.75rem",
+                      background: "#334155",
                       borderRadius: "6px",
-                      background: "rgba(30, 41, 59, 0.6)",
-                      border: "1px solid var(--border-subtle)",
+                      padding: "6px",
                       color: "#cbd5e1",
-                      fontSize: "0.78rem",
-                      cursor: "pointer",
                       display: "flex",
                       alignItems: "center",
-                      gap: "0.3rem",
                     }}
                   >
-                    <Sliders size={13} /> Review
-                  </button>
+                    <ChevronRight size={16} />
+                  </div>
                 </div>
               </div>
             );
