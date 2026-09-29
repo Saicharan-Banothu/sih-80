@@ -1,5 +1,9 @@
 {
   "metadata": {
+    "verification_status": "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION",
+    "evaluation_type": "Architectural Component Attribution Study (N=40 held-out)",
+    "data_integrity_policy": "ABSOLUTE_INTEGRITY_NO_FABRICATION",
+    "note": "Evaluated on reproducible held-out synthetic chronologies to isolate the physical contribution of soft gating, regimes, upper-tail loss, and upper-air dynamics. Not an operational archive evaluation.",
     "n_samples": 40,
     "grid_shape": [
       24,

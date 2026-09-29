@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   CloudRain,
   ShieldCheck,
@@ -18,7 +18,20 @@ import {
   Filter,
   RefreshCw,
   ExternalLink,
+  MapPin,
+  ListOrdered,
+  GitCompare,
+  BookOpen,
 } from "lucide-react";
+import { ForecastView } from "./components/ForecastView";
+import { DistrictsCatalogView } from "./components/DistrictsCatalogView";
+import { RawVsCorrectedView } from "./components/RawVsCorrectedView";
+import { PerformanceView } from "./components/PerformanceView";
+import { DataTrustView } from "./components/DataTrustView";
+import { HowItWorksView } from "./components/HowItWorksView";
+import { DistrictDetailDrawer } from "./components/DistrictDetailDrawer";
+import { ForecasterOverrideModal } from "./components/ForecasterOverrideModal";
+import { MapLayerType } from "./components/IndiaMap";
 
 interface DistrictAdvisory {
   district_id: string;
@@ -30,11 +43,22 @@ interface DistrictAdvisory {
   area_sq_km: number;
   forecast: {
     mean_q50_mm: number;
+    likely_range_q25_q75?: [number, number];
     max_q90_mm: number;
     peak_q99_mm: number;
+    quantiles?: {
+      q10: number;
+      q25: number;
+      q50: number;
+      q75: number;
+      q90: number;
+      q95: number;
+      q99: number;
+    };
     prob_heavy_64_5mm: number;
     prob_very_heavy_115_6mm: number;
     prob_extreme_204_5mm: number;
+    confidence?: string;
   };
   advisory: {
     color_code: "RED" | "ORANGE" | "YELLOW" | "GREEN";
@@ -42,6 +66,26 @@ interface DistrictAdvisory {
     action_text: string;
     dominant_regime: string;
   };
+  comparison?: {
+    raw_nwp_median_mm: number;
+    global_qm_median_mm: number;
+    moe_corrected_median_mm: number;
+    correction_delta_mm: number;
+    nwp_bias_corrected: string;
+  };
+  explanation?: {
+    summary: string;
+    synoptic_regime: string;
+    primary_driver: string;
+    bias_adjustment: string;
+    risk_verdict: string;
+  };
+  timeline?: Array<{
+    lead_hours: number;
+    label: string;
+    expected_rain_mm: number;
+    risk_color: string;
+  }>;
   forecaster_override?: any;
 }
 
@@ -53,53 +97,61 @@ interface ForecastPrediction {
     peak_q50_mm: number;
     peak_q90_mm: number;
     peak_q99_mm: number;
+    max_p_heavy?: number;
+    max_p_very_heavy?: number;
+    max_p_extreme?: number;
   };
   district_alert_counts: Record<string, number>;
   total_districts: number;
-  model_version: string;
+  model_metadata?: any;
+  model_version?: string;
+  mode?: string;
+  mode_label?: string;
 }
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"operations" | "benchmark" | "ablation" | "leaderboard" | "provenance">("operations");
+  const [activeTab, setActiveTab] = useState<
+    "forecast" | "districts" | "comparison" | "performance" | "datatrust" | "methodology"
+  >("forecast");
+
   const [districts, setDistricts] = useState<DistrictAdvisory[]>([]);
   const [prediction, setPrediction] = useState<ForecastPrediction | null>(null);
-  const [benchmarkData, setBenchmarkData] = useState<any | null>(null);
-  const [ablationData, setAblationData] = useState<any | null>(null);
-  const [leaderboardData, setLeaderboardData] = useState<any | null>(null);
-  const [selectedFilter, setSelectedFilter] = useState<string>("ALL");
+  const [leadHours, setLeadHours] = useState<number>(24);
+  const [activeMapLayer, setActiveMapLayer] = useState<MapLayerType>("RAINFALL");
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
+
+  // Deep dive drawer state
+  const [drawerDistrict, setDrawerDistrict] = useState<DistrictAdvisory | null>(null);
+
+  // Forecaster override modal state
+  const [overrideModalOpen, setOverrideModalOpen] = useState<boolean>(false);
+  const [districtToOverride, setDistrictToOverride] = useState<DistrictAdvisory | null>(null);
+
   const [backendConnected, setBackendConnected] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>(new Date().toISOString());
-
-  // Modal State for Forecaster Override
-  const [overrideModalOpen, setOverrideModalOpen] = useState<boolean>(false);
-  const [selectedDistrict, setSelectedDistrict] = useState<DistrictAdvisory | null>(null);
-  const [overrideColor, setOverrideColor] = useState<string>("ORANGE");
-  const [overrideScale, setOverrideScale] = useState<number>(1.15);
-  const [overrideReason, setOverrideReason] = useState<string>("Doppler radar indicates mesoscale convective intensification");
-  const [submittingOverride, setSubmittingOverride] = useState<boolean>(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date().toISOString()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async (currentLead: number = 24) => {
     setLoading(true);
     try {
-      const [distRes, predRes, benchRes, ablRes, leadRes] = await Promise.all([
-        fetch("/api/v1/forecast/districts"),
-        fetch("/api/v1/forecast/predict"),
-        fetch("/api/v1/verification/benchmark"),
-        fetch("/api/v1/verification/ablation"),
-        fetch("/api/v1/verification/leaderboard"),
+      const [distRes, predRes] = await Promise.all([
+        fetch(`/api/v1/forecast/districts?lead_hours=${currentLead}`),
+        fetch(`/api/v1/forecast/predict?lead_hours=${currentLead}`),
       ]);
 
-      if (distRes.ok) setDistricts(await distRes.json());
-      if (predRes.ok) setPrediction(await predRes.json());
-      if (benchRes.ok) setBenchmarkData(await benchRes.json());
-      if (ablRes.ok) setAblationData(await ablRes.json());
-      if (leadRes.ok) setLeaderboardData(await leadRes.json());
+      if (distRes.ok) {
+        const distData = await distRes.json();
+        setDistricts(distData);
+      }
+      if (predRes.ok) {
+        const predData = await predRes.json();
+        setPrediction(predData);
+      }
 
       setBackendConnected(true);
     } catch (err) {
@@ -121,13 +173,62 @@ export const App: React.FC = () => {
           peak_q50_mm: 145.2,
           peak_q90_mm: 210.4,
           peak_q99_mm: 285.0,
+          max_p_heavy: 0.74,
+          max_p_very_heavy: 0.62,
+          max_p_extreme: 0.38,
         },
-        district_alert_counts: { RED: 3, ORANGE: 1, YELLOW: 4, GREEN: 9 },
+        district_alert_counts: { RED: 3, ORANGE: 2, YELLOW: 4, GREEN: 8 },
         total_districts: 17,
         model_version: "JointRegimeAware-v0.1.0",
+        mode_label: "DEMONSTRATION SCENARIO",
       });
 
       setDistricts([
+        {
+          district_id: "OD_PUR",
+          name: "Puri",
+          state: "Odisha",
+          zone: "MONSOON_DEPRESSION_PATH",
+          lat: 19.81,
+          lon: 85.83,
+          area_sq_km: 3479,
+          forecast: {
+            mean_q50_mm: 114.2,
+            likely_range_q25_q75: [88.5, 142.1],
+            max_q90_mm: 184.6,
+            peak_q99_mm: 265.4,
+            quantiles: { q10: 52.1, q25: 88.5, q50: 114.2, q75: 142.1, q90: 184.6, q95: 218.4, q99: 265.4 },
+            prob_heavy_64_5mm: 0.762,
+            prob_very_heavy_115_6mm: 0.641,
+            prob_extreme_204_5mm: 0.395,
+            confidence: "HIGH",
+          },
+          advisory: {
+            color_code: "RED",
+            severity: 4,
+            action_text: "Take Action (RED WARNING): Landfall of monsoon depression. Severe urban and coastal inundation.",
+            dominant_regime: "MONSOON_DEPRESSION_LOW",
+          },
+          comparison: {
+            raw_nwp_median_mm: 68.4,
+            global_qm_median_mm: 88.2,
+            moe_corrected_median_mm: 114.2,
+            correction_delta_mm: 45.8,
+            nwp_bias_corrected: "Underestimation (+45.8 mm correction applied)",
+          },
+          explanation: {
+            summary: "Coastal landfall of monsoon depression with 992 hPa central low pressure.",
+            synoptic_regime: "MONSOON_DEPRESSION_LOW (55% probability)",
+            primary_driver: "Vorticity max at 850 hPa combined with offshore convergence trough.",
+            bias_adjustment: "Raw NWP underrepresented inner-core convective rainbands; neural residual expert compensated.",
+            risk_verdict: "High flash flood and tidal storm surge probability. Immediate response required.",
+          },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 114.2, risk_color: "#dc2626" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 78.4, risk_color: "#ea580c" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 32.1, risk_color: "#ca8a04" },
+          ],
+        },
         {
           district_id: "KL_WAY",
           name: "Wayanad",
@@ -138,41 +239,40 @@ export const App: React.FC = () => {
           area_sq_km: 2132,
           forecast: {
             mean_q50_mm: 113.0,
+            likely_range_q25_q75: [85.0, 140.0],
             max_q90_mm: 164.2,
             peak_q99_mm: 237.8,
+            quantiles: { q10: 48.0, q25: 85.0, q50: 113.0, q75: 140.0, q90: 164.2, q95: 195.0, q99: 237.8 },
             prob_heavy_64_5mm: 0.715,
             prob_very_heavy_115_6mm: 0.584,
             prob_extreme_204_5mm: 0.342,
+            confidence: "HIGH",
           },
           advisory: {
             color_code: "RED",
             severity: 4,
-            action_text: "Take Action (RED WARNING): Extremely heavy rainfall expected. High risk of flash floods and landslides. Mobilize NDRF/SDRF.",
+            action_text: "Take Action (RED WARNING): Extremely heavy orographic rainfall. Severe risk of flash floods and landslides.",
             dominant_regime: "OROGRAPHIC_WESTERN_GHATS",
           },
-        },
-        {
-          district_id: "OD_PUR",
-          name: "Puri",
-          state: "Odisha",
-          zone: "MONSOON_DEPRESSION_PATH",
-          lat: 19.81,
-          lon: 85.83,
-          area_sq_km: 3479,
-          forecast: {
-            mean_q50_mm: 106.6,
-            max_q90_mm: 179.8,
-            peak_q99_mm: 260.5,
-            prob_heavy_64_5mm: 0.740,
-            prob_very_heavy_115_6mm: 0.621,
-            prob_extreme_204_5mm: 0.380,
+          comparison: {
+            raw_nwp_median_mm: 64.0,
+            global_qm_median_mm: 82.0,
+            moe_corrected_median_mm: 113.0,
+            correction_delta_mm: 49.0,
+            nwp_bias_corrected: "Severe orographic windward underestimation corrected",
           },
-          advisory: {
-            color_code: "RED",
-            severity: 4,
-            action_text: "Take Action (RED WARNING): Landfall of monsoon depression. Severe urban and agricultural inundation.",
-            dominant_regime: "MONSOON_DEPRESSION_LOW",
+          explanation: {
+            summary: "Vigorous low-level cross-equatorial monsoon jet impingement on steep Western Ghats escarpment.",
+            synoptic_regime: "OROGRAPHIC_WESTERN_GHATS (15% probability)",
+            primary_driver: "850 hPa westerly winds exceeding 35 knots with moisture flux > 400 kg/(m s).",
+            bias_adjustment: "Raw NWP smoothed sub-grid topographic uplift; neural expert upweighted orographic slope cells.",
+            risk_verdict: "High landslide susceptibility in elevated tea plantation catchments. Evacuate vulnerable slopes.",
           },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 113.0, risk_color: "#dc2626" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 92.5, risk_color: "#dc2626" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 45.0, risk_color: "#ca8a04" },
+          ],
         },
         {
           district_id: "AP_VSK",
@@ -184,121 +284,130 @@ export const App: React.FC = () => {
           area_sq_km: 1048,
           forecast: {
             mean_q50_mm: 79.5,
+            likely_range_q25_q75: [55.0, 102.0],
             max_q90_mm: 120.9,
             peak_q99_mm: 175.1,
+            quantiles: { q10: 32.0, q25: 55.0, q50: 79.5, q75: 102.0, q90: 120.9, q95: 145.0, q99: 175.1 },
             prob_heavy_64_5mm: 0.613,
             prob_very_heavy_115_6mm: 0.412,
             prob_extreme_204_5mm: 0.125,
+            confidence: "MODERATE",
           },
           advisory: {
             color_code: "ORANGE",
             severity: 3,
-            action_text: "Be Prepared (ORANGE ALERT): Very heavy rainfall expected. Waterlogging on arterial roads, relief teams on standby.",
+            action_text: "Be Prepared (ORANGE ALERT): Very heavy rainfall expected. Urban waterlogging and coastal squalls.",
             dominant_regime: "COASTAL_CONVECTIVE",
           },
-        },
-        {
-          district_id: "MH_NAG",
-          name: "Nagpur",
-          state: "Maharashtra",
-          zone: "CENTRAL_MONSOON_CORE",
-          lat: 21.14,
-          lon: 79.08,
-          area_sq_km: 9892,
-          forecast: {
-            mean_q50_mm: 35.6,
-            max_q90_mm: 61.2,
-            peak_q99_mm: 88.7,
-            prob_heavy_64_5mm: 0.153,
-            prob_very_heavy_115_6mm: 0.024,
-            prob_extreme_204_5mm: 0.002,
+          comparison: {
+            raw_nwp_median_mm: 48.0,
+            global_qm_median_mm: 62.0,
+            moe_corrected_median_mm: 79.5,
+            correction_delta_mm: 31.5,
+            nwp_bias_corrected: "Convective initiation timing and amplitude corrected",
           },
-          advisory: {
-            color_code: "YELLOW",
-            severity: 2,
-            action_text: "Be Updated (YELLOW WATCH): Moderate to heavy showers. Monitor local forecasts before road travel.",
-            dominant_regime: "ACTIVE_MONSOON",
+          explanation: {
+            summary: "Mesoscale convective cloud complex organized along coastal convergence zone.",
+            synoptic_regime: "COASTAL_CONVECTIVE (3% probability, localized)",
+            primary_driver: "High CAPE (> 2200 J/kg) coupled with land-sea thermal contrast.",
+            bias_adjustment: "Convective expert intensified local rainfall clusters in urban coastal strip.",
+            risk_verdict: "Substantial risk of localized urban flooding and low-lying water stagnation.",
           },
+          timeline: [
+            { lead_hours: 24, label: "Day 1 (+24h)", expected_rain_mm: 79.5, risk_color: "#ea580c" },
+            { lead_hours: 48, label: "Day 2 (+48h)", expected_rain_mm: 52.0, risk_color: "#ca8a04" },
+            { lead_hours: 72, label: "Day 3 (+72h)", expected_rain_mm: 22.0, risk_color: "#16a34a" },
+          ],
         },
       ]);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
   }, []);
 
-  const handleApplyOverride = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedDistrict) return;
-    setSubmittingOverride(true);
+  useEffect(() => {
+    fetchData(leadHours);
+  }, [fetchData, leadHours]);
+
+  const handleLeadChange = (hours: number) => {
+    setLeadHours(hours);
+  };
+
+  const handleSelectDistrictFromMap = (id: string) => {
+    setSelectedDistrictId(id);
+    const found = districts.find((d) => d.district_id === id);
+    if (found) {
+      setDrawerDistrict(found);
+    }
+  };
+
+  const handleSelectDistrictFromCatalog = (district: DistrictAdvisory) => {
+    setSelectedDistrictId(district.district_id);
+    setDrawerDistrict(district);
+  };
+
+  const handleOpenOverride = (district: DistrictAdvisory) => {
+    setDistrictToOverride(district);
+    setOverrideModalOpen(true);
+  };
+
+  const handleApplyOverride = async (districtId: string, color: string, scale: number, reason: string) => {
     try {
       const res = await fetch("/api/v1/forecast/override", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          district_id: selectedDistrict.district_id,
+          district_id: districtId,
           forecaster_id: "DUTY_METEOROLOGIST_01",
-          overridden_color: overrideColor,
-          scaling_multiplier: overrideScale,
-          justification_reason: overrideReason,
+          overridden_color: color,
+          scaling_multiplier: scale,
+          justification_reason: reason,
         }),
       });
+
       if (res.ok) {
         const data = await res.json();
-        // Update state
         setDistricts((prev) =>
-          prev.map((d) => (d.district_id === selectedDistrict.district_id ? data.updated_advisory : d))
+          prev.map((d) => (d.district_id === districtId ? data.updated_advisory : d))
         );
-        setOverrideModalOpen(false);
+        if (drawerDistrict && drawerDistrict.district_id === districtId) {
+          setDrawerDistrict(data.updated_advisory);
+        }
+      } else {
+        throw new Error("Backend override returned status " + res.status);
       }
     } catch (err) {
-      console.error("Override submission error:", err);
-      // Local optimistic update
+      console.warn("Applying optimistic client-side override:", err);
       setDistricts((prev) =>
         prev.map((d) => {
-          if (d.district_id === selectedDistrict.district_id) {
-            return {
+          if (d.district_id === districtId) {
+            const updated = {
               ...d,
               advisory: {
                 ...d.advisory,
-                color_code: overrideColor as any,
-                action_text: `[OVERRIDDEN by DUTY_METEOROLOGIST_01] Alert modified to ${overrideColor}. Reason: ${overrideReason}`,
+                color_code: color as any,
+                action_text: `[DUTY FORECASTER OVERRIDE] Alert modified to ${color}. Rationale: ${reason}`,
+              },
+              forecast: {
+                ...d.forecast,
+                mean_q50_mm: Math.round(d.forecast.mean_q50_mm * scale * 10) / 10,
+                max_q90_mm: Math.round(d.forecast.max_q90_mm * scale * 10) / 10,
+                peak_q99_mm: Math.round(d.forecast.peak_q99_mm * scale * 10) / 10,
               },
             };
+            if (drawerDistrict && drawerDistrict.district_id === districtId) {
+              setDrawerDistrict(updated);
+            }
+            return updated;
           }
           return d;
         })
       );
-      setOverrideModalOpen(false);
-    } finally {
-      setSubmittingOverride(false);
-    }
-  };
-
-  const filteredDistricts = districts.filter((d) => {
-    if (selectedFilter === "ALL") return true;
-    return d.advisory.color_code === selectedFilter;
-  });
-
-  const getColorBadge = (code: string) => {
-    switch (code) {
-      case "RED":
-        return { bg: "#dc2626", text: "#ffffff", border: "#ef4444" };
-      case "ORANGE":
-        return { bg: "#ea580c", text: "#ffffff", border: "#f97316" };
-      case "YELLOW":
-        return { bg: "#ca8a04", text: "#000000", border: "#eab308" };
-      case "GREEN":
-      default:
-        return { bg: "#16a34a", text: "#ffffff", border: "#22c55e" };
     }
   };
 
   return (
-    <div className="app-container">
+    <div className="app-container" style={{ minHeight: "100vh", background: "#0b1329", color: "#f8fafc" }}>
       {/* Operational Header */}
       <header className="operational-header">
         <div className="brand-section">
@@ -323,122 +432,167 @@ export const App: React.FC = () => {
           </div>
 
           <div className="meta-item">
-            <span className="meta-label">Resolution</span>
-            <span className="meta-value">0.25° (~27 km)</span>
+            <span className="meta-label">Active Lead</span>
+            <span className="meta-value" style={{ color: "#38bdf8", fontWeight: 700 }}>+{leadHours}h</span>
           </div>
 
           <div className="meta-item">
-            <span className="meta-label">Active Backbone</span>
-            <span className="meta-value">LIGHTWEIGHT_RESIDUAL</span>
+            <span className="meta-label">Data Mode</span>
+            <span
+              className="meta-value"
+              style={{
+                color: backendConnected ? "#4ade80" : "#fbbf24",
+                fontWeight: 700,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {backendConnected ? "FASTAPI OPERATIONAL PIPELINE" : "SYNTHETIC DEMO SCENARIO"}
+            </span>
           </div>
 
           <div className="status-pill">
             <span className="status-dot" style={{ background: backendConnected ? "#22c55e" : "#eab308" }}></span>
-            {backendConnected ? "FASTAPI ONLINE" : "LOCAL DEMO MODE"}
+            {backendConnected ? "SYSTEM ONLINE" : "DEMO PREVIEW"}
           </div>
         </div>
       </header>
 
       {/* Navigation Bar */}
-      <nav className="dashboard-nav" style={{ display: "flex", gap: "0.5rem", padding: "0.75rem 1.5rem", background: "rgba(15, 23, 42, 0.7)", borderBottom: "1px solid var(--border-subtle)" }}>
+      <nav
+        className="dashboard-nav"
+        style={{
+          display: "flex",
+          gap: "0.5rem",
+          padding: "0.75rem 1.5rem",
+          background: "rgba(15, 23, 42, 0.8)",
+          borderBottom: "1px solid var(--border-subtle)",
+          overflowX: "auto",
+        }}
+      >
         <button
-          onClick={() => setActiveTab("operations")}
-          className={`nav-tab-btn ${activeTab === "operations" ? "active" : ""}`}
+          onClick={() => setActiveTab("forecast")}
+          className={`nav-tab-btn ${activeTab === "forecast" ? "active" : ""}`}
           style={{
             padding: "0.5rem 1rem",
             borderRadius: "6px",
             fontSize: "0.82rem",
-            fontWeight: 600,
+            fontWeight: 700,
             cursor: "pointer",
-            border: activeTab === "operations" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "operations" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "operations" ? "#38bdf8" : "var(--text-secondary)",
+            border: activeTab === "forecast" ? "1px solid #38bdf8" : "1px solid transparent",
+            background: activeTab === "forecast" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+            color: activeTab === "forecast" ? "#38bdf8" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
             gap: "0.4rem",
+            whiteSpace: "nowrap",
           }}
         >
-          <Activity size={15} /> District Operations & Advisories
+          <Compass size={15} /> Forecast & Spatial Map
         </button>
 
         <button
-          onClick={() => setActiveTab("benchmark")}
-          className={`nav-tab-btn ${activeTab === "benchmark" ? "active" : ""}`}
+          onClick={() => setActiveTab("districts")}
+          className={`nav-tab-btn ${activeTab === "districts" ? "active" : ""}`}
           style={{
             padding: "0.5rem 1rem",
             borderRadius: "6px",
             fontSize: "0.82rem",
-            fontWeight: 600,
+            fontWeight: 700,
             cursor: "pointer",
-            border: activeTab === "benchmark" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "benchmark" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "benchmark" ? "#38bdf8" : "var(--text-secondary)",
+            border: activeTab === "districts" ? "1px solid #38bdf8" : "1px solid transparent",
+            background: activeTab === "districts" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+            color: activeTab === "districts" ? "#38bdf8" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
             gap: "0.4rem",
+            whiteSpace: "nowrap",
           }}
         >
-          <BarChart3 size={15} /> Scientific Verification (3-Way)
+          <ListOrdered size={15} /> District Advisories Dossier ({districts.length})
         </button>
 
         <button
-          onClick={() => setActiveTab("ablation")}
-          className={`nav-tab-btn ${activeTab === "ablation" ? "active" : ""}`}
+          onClick={() => setActiveTab("comparison")}
+          className={`nav-tab-btn ${activeTab === "comparison" ? "active" : ""}`}
           style={{
             padding: "0.5rem 1rem",
             borderRadius: "6px",
             fontSize: "0.82rem",
-            fontWeight: 600,
+            fontWeight: 700,
             cursor: "pointer",
-            border: activeTab === "ablation" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "ablation" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "ablation" ? "#38bdf8" : "var(--text-secondary)",
+            border: activeTab === "comparison" ? "1px solid #38bdf8" : "1px solid transparent",
+            background: activeTab === "comparison" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+            color: activeTab === "comparison" ? "#38bdf8" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
             gap: "0.4rem",
+            whiteSpace: "nowrap",
           }}
         >
-          <Layers size={15} /> 5-Way Ablation Study
+          <GitCompare size={15} /> Raw vs Corrected (3-Way)
         </button>
 
         <button
-          onClick={() => setActiveTab("leaderboard")}
-          className={`nav-tab-btn ${activeTab === "leaderboard" ? "active" : ""}`}
+          onClick={() => setActiveTab("performance")}
+          className={`nav-tab-btn ${activeTab === "performance" ? "active" : ""}`}
           style={{
             padding: "0.5rem 1rem",
             borderRadius: "6px",
             fontSize: "0.82rem",
             fontWeight: 600,
             cursor: "pointer",
-            border: activeTab === "leaderboard" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "leaderboard" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "leaderboard" ? "#38bdf8" : "var(--text-secondary)",
+            border: activeTab === "performance" ? "1px solid #38bdf8" : "1px solid transparent",
+            background: activeTab === "performance" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+            color: activeTab === "performance" ? "#38bdf8" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
             gap: "0.4rem",
+            whiteSpace: "nowrap",
           }}
         >
-          <Award size={15} /> 6-Model ML Leaderboard
+          <BarChart3 size={15} /> Scientific Verification & Leaderboard
         </button>
 
         <button
-          onClick={() => setActiveTab("provenance")}
-          className={`nav-tab-btn ${activeTab === "provenance" ? "active" : ""}`}
+          onClick={() => setActiveTab("datatrust")}
+          className={`nav-tab-btn ${activeTab === "datatrust" ? "active" : ""}`}
           style={{
             padding: "0.5rem 1rem",
             borderRadius: "6px",
             fontSize: "0.82rem",
             fontWeight: 600,
             cursor: "pointer",
-            border: activeTab === "provenance" ? "1px solid #38bdf8" : "1px solid transparent",
-            background: activeTab === "provenance" ? "rgba(56, 189, 248, 0.15)" : "transparent",
-            color: activeTab === "provenance" ? "#38bdf8" : "var(--text-secondary)",
+            border: activeTab === "datatrust" ? "1px solid #38bdf8" : "1px solid transparent",
+            background: activeTab === "datatrust" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+            color: activeTab === "datatrust" ? "#38bdf8" : "var(--text-secondary)",
             display: "flex",
             alignItems: "center",
             gap: "0.4rem",
+            whiteSpace: "nowrap",
           }}
         >
-          <ShieldCheck size={15} /> Data Provenance & Leakage Audit
+          <ShieldCheck size={15} /> Data Governance & Zero Leakage
+        </button>
+
+        <button
+          onClick={() => setActiveTab("methodology")}
+          className={`nav-tab-btn ${activeTab === "methodology" ? "active" : ""}`}
+          style={{
+            padding: "0.5rem 1rem",
+            borderRadius: "6px",
+            fontSize: "0.82rem",
+            fontWeight: 600,
+            cursor: "pointer",
+            border: activeTab === "methodology" ? "1px solid #38bdf8" : "1px solid transparent",
+            background: activeTab === "methodology" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+            color: activeTab === "methodology" ? "#38bdf8" : "var(--text-secondary)",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <BookOpen size={15} /> How It Works & Architecture
         </button>
       </nav>
 
@@ -447,695 +601,67 @@ export const App: React.FC = () => {
         <div className="disclaimer-text">
           <AlertTriangle size={15} color="#eab308" />
           <span>
-            <strong>IMD OPERATIONAL DECISION SUPPORT:</strong> Predictions produced by soft-gated MoE residual architecture ($q_{10} \dots q_{99}$). Final alerts require certified meteorologist review.
+            <strong>IMD OPERATIONAL DECISION SUPPORT:</strong> Soft-gated Mixture of Experts residual architecture (q10 - q99). Continuous Pareto tail inversion (P &gt; 64.5, 115.6, 204.5 mm). All alerts require certified meteorologist sign-off.
           </span>
         </div>
-        <div style={{ display: "flex", gap: "1rem", fontFamily: "var(--font-mono)" }}>
+        <div style={{ display: "flex", gap: "1rem", fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
           <span>UTC: {currentTime.slice(11, 19)}</span>
-          <span>DISTRICTS MONITORED: {districts.length}</span>
+          <span>DISTRICTS: {districts.length}</span>
         </div>
       </div>
 
-      {/* TAB 1: DISTRICT OPERATIONS & ADVISORIES */}
-      {activeTab === "operations" && (
-        <main className="dashboard-grid" style={{ gridTemplateColumns: "340px 1fr", padding: "1.25rem 1.5rem" }}>
-          {/* Left Column: Synoptic Regime Vector & Alert Counts */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* Synoptic State Card */}
-            <div className="dashboard-card" style={{ padding: "1.25rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-cyan)", textTransform: "uppercase" }}>
-                  Synoptic Weather Regime
-                </span>
-                <span style={{ background: "rgba(56, 189, 248, 0.2)", color: "#38bdf8", padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.7rem", fontWeight: 600 }}>
-                  MODULE A
-                </span>
-              </div>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#f8fafc", marginBottom: "0.5rem" }}>
-                {prediction?.dominant_regime.replace(/_/g, " ") || "MONSOON DEPRESSION"}
-              </div>
-              <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)", lineHeight: 1.4, marginBottom: "1rem" }}>
-                Calibrated probabilistic regime vector gating 6 specialized neural residual experts:
-              </p>
-
-              {/* Regime Gauges */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                {prediction &&
-                  Object.entries(prediction.regime_probabilities).map(([regime, prob]) => (
-                    <div key={regime}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", marginBottom: "0.2rem" }}>
-                        <span style={{ color: regime === prediction.dominant_regime ? "#38bdf8" : "var(--text-secondary)", fontWeight: regime === prediction.dominant_regime ? 700 : 500 }}>
-                          {regime.replace(/_/g, " ")}
-                        </span>
-                        <span style={{ fontFamily: "var(--font-mono)", color: "#f8fafc" }}>
-                          {(prob * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div style={{ height: "6px", background: "rgba(30, 41, 59, 0.8)", borderRadius: "3px", overflow: "hidden" }}>
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${prob * 100}%`,
-                            background: regime === prediction.dominant_regime ? "linear-gradient(90deg, #38bdf8, #818cf8)" : "#64748b",
-                            borderRadius: "3px",
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-
-            {/* Alert Summary Card */}
-            <div className="dashboard-card" style={{ padding: "1.25rem" }}>
-              <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
-                IMD 4-Stage Warning Status
-              </span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "0.6rem", marginTop: "0.75rem" }}>
-                <div style={{ padding: "0.75rem", background: "rgba(220, 38, 38, 0.15)", border: "1px solid #dc2626", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "0.7rem", color: "#fca5a5", fontWeight: 600 }}>RED WARNING</div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ffffff" }}>
-                    {prediction?.district_alert_counts.RED || 0}
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "#fca5a5" }}>Take Action</div>
-                </div>
-
-                <div style={{ padding: "0.75rem", background: "rgba(234, 88, 12, 0.15)", border: "1px solid #ea580c", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "0.7rem", color: "#fdba74", fontWeight: 600 }}>ORANGE ALERT</div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ffffff" }}>
-                    {prediction?.district_alert_counts.ORANGE || 0}
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "#fdba74" }}>Be Prepared</div>
-                </div>
-
-                <div style={{ padding: "0.75rem", background: "rgba(202, 138, 4, 0.15)", border: "1px solid #ca8a04", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "0.7rem", color: "#fef08a", fontWeight: 600 }}>YELLOW WATCH</div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ffffff" }}>
-                    {prediction?.district_alert_counts.YELLOW || 0}
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "#fef08a" }}>Be Updated</div>
-                </div>
-
-                <div style={{ padding: "0.75rem", background: "rgba(22, 163, 74, 0.15)", border: "1px solid #16a34a", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "0.7rem", color: "#86efac", fontWeight: 600 }}>GREEN</div>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ffffff" }}>
-                    {prediction?.district_alert_counts.GREEN || 0}
-                  </div>
-                  <div style={{ fontSize: "0.65rem", color: "#86efac" }}>No Warning</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: District Advisory Cards */}
-          <div>
-            {/* Filter Bar */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                <Filter size={15} color="var(--text-muted)" />
-                <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)" }}>Filter Tiers:</span>
-                {["ALL", "RED", "ORANGE", "YELLOW", "GREEN"].map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setSelectedFilter(f)}
-                    style={{
-                      padding: "0.3rem 0.6rem",
-                      borderRadius: "4px",
-                      fontSize: "0.72rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      border: selectedFilter === f ? "1px solid #38bdf8" : "1px solid var(--border-subtle)",
-                      background: selectedFilter === f ? "rgba(56, 189, 248, 0.2)" : "rgba(30, 41, 59, 0.5)",
-                      color: selectedFilter === f ? "#38bdf8" : "var(--text-secondary)",
-                    }}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                onClick={fetchData}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.3rem",
-                  padding: "0.3rem 0.6rem",
-                  borderRadius: "4px",
-                  fontSize: "0.72rem",
-                  background: "rgba(56, 189, 248, 0.1)",
-                  border: "1px solid rgba(56, 189, 248, 0.3)",
-                  color: "#38bdf8",
-                  cursor: "pointer",
-                }}
-              >
-                <RefreshCw size={13} /> Refresh Forecast
-              </button>
-            </div>
-
-            {/* District Cards Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "1rem" }}>
-              {filteredDistricts.map((d) => {
-                const badge = getColorBadge(d.advisory.color_code);
-                return (
-                  <div
-                    key={d.district_id}
-                    className="dashboard-card"
-                    style={{
-                      borderLeft: `5px solid ${badge.bg}`,
-                      padding: "1rem",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <div>
-                      {/* Top Header */}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem" }}>
-                        <div>
-                          <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "#f8fafc" }}>{d.name}</div>
-                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                            {d.state} • {d.zone.replace(/_/g, " ")}
-                          </div>
-                        </div>
-
-                        <span
-                          style={{
-                            background: badge.bg,
-                            color: badge.text,
-                            padding: "0.25rem 0.6rem",
-                            borderRadius: "4px",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            letterSpacing: "0.5px",
-                          }}
-                        >
-                          {d.advisory.color_code}
-                        </span>
-                      </div>
-
-                      {/* Quantile Metrics Grid */}
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(3, 1fr)",
-                          gap: "0.4rem",
-                          background: "rgba(15, 23, 42, 0.6)",
-                          padding: "0.6rem",
-                          borderRadius: "6px",
-                          margin: "0.75rem 0",
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>MEAN (q50)</div>
-                          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#38bdf8" }}>{d.forecast.mean_q50_mm} mm</div>
-                        </div>
-
-                        <div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>MAX (q90)</div>
-                          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#facc15" }}>{d.forecast.max_q90_mm} mm</div>
-                        </div>
-
-                        <div>
-                          <div style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>PEAK (q99)</div>
-                          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f87171" }}>{d.forecast.peak_q99_mm} mm</div>
-                        </div>
-                      </div>
-
-                      {/* Exceedance Probabilities Bar */}
-                      <div style={{ fontSize: "0.72rem", marginBottom: "0.5rem" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-secondary)", marginBottom: "0.2rem" }}>
-                          <span>P(R &gt; 64.5 mm Heavy):</span>
-                          <span style={{ fontWeight: 700, color: d.forecast.prob_heavy_64_5mm > 0.5 ? "#f87171" : "#94a3b8" }}>
-                            {(d.forecast.prob_heavy_64_5mm * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-secondary)" }}>
-                          <span>P(R &gt; 115.6 mm Very Heavy):</span>
-                          <span style={{ fontWeight: 700, color: d.forecast.prob_very_heavy_115_6mm > 0.3 ? "#f87171" : "#94a3b8" }}>
-                            {(d.forecast.prob_very_heavy_115_6mm * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Recommended Action */}
-                      <div
-                        style={{
-                          fontSize: "0.72rem",
-                          lineHeight: 1.4,
-                          color: "var(--text-primary)",
-                          background: "rgba(30, 41, 59, 0.4)",
-                          padding: "0.5rem",
-                          borderRadius: "4px",
-                          border: "1px solid var(--border-subtle)",
-                        }}
-                      >
-                        {d.advisory.action_text}
-                      </div>
-                    </div>
-
-                    {/* Duty Forecaster Override Button */}
-                    <div style={{ marginTop: "0.75rem", display: "flex", justifyContent: "flex-end" }}>
-                      <button
-                        onClick={() => {
-                          setSelectedDistrict(d);
-                          setOverrideColor(d.advisory.color_code);
-                          setOverrideModalOpen(true);
-                        }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.3rem",
-                          background: "transparent",
-                          border: "1px solid var(--border-subtle)",
-                          color: "var(--text-secondary)",
-                          padding: "0.25rem 0.6rem",
-                          borderRadius: "4px",
-                          fontSize: "0.7rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <Sliders size={12} /> Forecaster Review
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </main>
+      {/* TAB 1: FORECAST VIEW (HERO INDIA MAP + ATTENTION ALERTS + TIMELINE) */}
+      {activeTab === "forecast" && (
+        <ForecastView
+          districts={districts}
+          prediction={prediction}
+          leadHours={leadHours}
+          onChangeLeadHours={handleLeadChange}
+          activeLayer={activeMapLayer}
+          onChangeLayer={setActiveMapLayer}
+          selectedDistrictId={selectedDistrictId}
+          onSelectDistrict={handleSelectDistrictFromMap}
+          onOpenOverride={handleOpenOverride}
+          onViewDistrictDetails={handleSelectDistrictFromCatalog}
+        />
       )}
 
-      {/* TAB 2: SCIENTIFIC VERIFICATION BENCHMARK */}
-      {activeTab === "benchmark" && (
-        <main style={{ padding: "1.5rem" }}>
-          <div className="dashboard-card" style={{ padding: "1.5rem", marginBottom: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--accent-cyan)", marginBottom: "0.5rem" }}>
-              Core 3-Way Comparative Experiment: Model A vs Model B vs Model C
-            </h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
-              Evaluation across held-out test chronologies (strictly past training vs future test separation). Incorporates paired block-bootstrap significance tests (Politis & Romano, 1994) with 5-day synoptic block lengths to account for meteorological autocorrelation.
-            </p>
-
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", textAlign: "left" }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid var(--border-subtle)", color: "var(--text-muted)" }}>
-                  <th style={{ padding: "0.6rem" }}>Model</th>
-                  <th style={{ padding: "0.6rem" }}>Bulk RMSE</th>
-                  <th style={{ padding: "0.6rem" }}>MAE</th>
-                  <th style={{ padding: "0.6rem" }}>Mean Bias</th>
-                  <th style={{ padding: "0.6rem" }}>Heavy POD (64.5mm)</th>
-                  <th style={{ padding: "0.6rem" }}>Heavy ETS (64.5mm)</th>
-                  <th style={{ padding: "0.6rem" }}>Spatial FSS (3x3)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem", fontWeight: 600 }}>Model A: Raw NWP</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>11.37 mm</td>
-                  <td style={{ padding: "0.6rem" }}>7.26 mm</td>
-                  <td style={{ padding: "0.6rem" }}>-3.94 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.395</td>
-                  <td style={{ padding: "0.6rem" }}>0.371</td>
-                  <td style={{ padding: "0.6rem" }}>0.6665</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem", fontWeight: 600 }}>Model B: Global QM (xsdba)</td>
-                  <td style={{ padding: "0.6rem", color: "#facc15" }}>5.34 mm</td>
-                  <td style={{ padding: "0.6rem" }}>3.97 mm</td>
-                  <td style={{ padding: "0.6rem" }}>-2.70 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.679</td>
-                  <td style={{ padding: "0.6rem" }}>0.671</td>
-                  <td style={{ padding: "0.6rem" }}>0.9348</td>
-                </tr>
-                <tr style={{ background: "rgba(56, 189, 248, 0.08)", fontWeight: 700 }}>
-                  <td style={{ padding: "0.6rem", color: "#38bdf8" }}>Model C: Soft MoE (Ours)</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>2.13 mm (+81.2%)</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>1.69 mm</td>
-                  <td style={{ padding: "0.6rem" }}>-0.28 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>0.909</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>0.903 (+0.532)</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>0.9926</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Block Bootstrap Statistical Table */}
-          <div className="dashboard-card" style={{ padding: "1.5rem" }}>
-            <h3 style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f8fafc", marginBottom: "0.5rem" }}>
-              Paired Block-Bootstrap Significance Testing (500 Resamples, 5-Day Synoptic Blocks)
-            </h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "1rem", marginTop: "1rem" }}>
-              <div style={{ padding: "1rem", background: "rgba(15, 23, 42, 0.6)", borderRadius: "6px", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ fontWeight: 600, color: "#38bdf8", marginBottom: "0.3rem" }}>RMSE Reduction (MoE vs Global QM)</div>
-                <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#4ade80" }}>-3.211 mm</div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                  95% Confidence Interval: [-3.476, -2.852] • p &lt; 0.0001 (Statistically Significant)
-                </div>
-              </div>
-
-              <div style={{ padding: "1rem", background: "rgba(15, 23, 42, 0.6)", borderRadius: "6px", border: "1px solid var(--border-subtle)" }}>
-                <div style={{ fontWeight: 600, color: "#38bdf8", marginBottom: "0.3rem" }}>Heavy Rain ETS Improvement (MoE vs Global QM)</div>
-                <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#4ade80" }}>+0.232</div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                  95% Confidence Interval: [+0.206, +0.261] • p &lt; 0.0001 (Statistically Significant)
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
+      {/* TAB 2: DISTRICTS CATALOG VIEW (SEARCHABLE & FILTERABLE DOSSIER) */}
+      {activeTab === "districts" && (
+        <DistrictsCatalogView
+          districts={districts}
+          onSelectDistrict={handleSelectDistrictFromCatalog}
+          onOpenOverride={handleOpenOverride}
+        />
       )}
 
-      {/* TAB 3: ABLATION STUDY */}
-      {activeTab === "ablation" && (
-        <main style={{ padding: "1.5rem" }}>
-          <div className="dashboard-card" style={{ padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--accent-cyan)", marginBottom: "0.5rem" }}>
-              5-Way Architectural Ablation Benchmark
-            </h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
-              Isolating each architectural component across identical held-out test chronologies:
-            </p>
+      {/* TAB 3: RAW VS CORRECTED COMPARISON */}
+      {activeTab === "comparison" && <RawVsCorrectedView />}
 
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", textAlign: "left" }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid var(--border-subtle)", color: "var(--text-muted)" }}>
-                  <th style={{ padding: "0.6rem" }}>Ablation Variant</th>
-                  <th style={{ padding: "0.6rem" }}>RMSE</th>
-                  <th style={{ padding: "0.6rem" }}>Delta RMSE</th>
-                  <th style={{ padding: "0.6rem" }}>ETS (64.5mm)</th>
-                  <th style={{ padding: "0.6rem" }}>Delta ETS</th>
-                  <th style={{ padding: "0.6rem" }}>FSS (3x3)</th>
-                  <th style={{ padding: "0.6rem" }}>CRPS</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ background: "rgba(56, 189, 248, 0.08)", fontWeight: 700 }}>
-                  <td style={{ padding: "0.6rem", color: "#38bdf8" }}>V1: Full Proposed System</td>
-                  <td style={{ padding: "0.6rem" }}>2.13 mm</td>
-                  <td style={{ padding: "0.6rem" }}>Base</td>
-                  <td style={{ padding: "0.6rem" }}>0.905</td>
-                  <td style={{ padding: "0.6rem" }}>Base</td>
-                  <td style={{ padding: "0.6rem" }}>0.9931</td>
-                  <td style={{ padding: "0.6rem" }}>2.40 mm</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>V2: No Regimes (Single Global Expert)</td>
-                  <td style={{ padding: "0.6rem" }}>4.36 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>+104.5%</td>
-                  <td style={{ padding: "0.6rem" }}>0.745</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>-17.7%</td>
-                  <td style={{ padding: "0.6rem" }}>0.9603</td>
-                  <td style={{ padding: "0.6rem" }}>2.50 mm</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>V3: Hard Argmax Gating (No Blend)</td>
-                  <td style={{ padding: "0.6rem" }}>4.61 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>+116.3%</td>
-                  <td style={{ padding: "0.6rem" }}>0.808</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>-10.8%</td>
-                  <td style={{ padding: "0.6rem" }}>0.9758</td>
-                  <td style={{ padding: "0.6rem" }}>2.87 mm</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>V4: No Tail Loss Weight (lambda_h=0)</td>
-                  <td style={{ padding: "0.6rem" }}>5.28 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>+147.7%</td>
-                  <td style={{ padding: "0.6rem" }}>0.445</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>-50.9%</td>
-                  <td style={{ padding: "0.6rem" }}>0.7955</td>
-                  <td style={{ padding: "0.6rem" }}>2.42 mm</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>V5: Reduced Features (No Dynamics)</td>
-                  <td style={{ padding: "0.6rem" }}>3.73 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>+75.1%</td>
-                  <td style={{ padding: "0.6rem" }}>0.771</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>-14.8%</td>
-                  <td style={{ padding: "0.6rem" }}>0.9687</td>
-                  <td style={{ padding: "0.6rem" }}>2.38 mm</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </main>
-      )}
+      {/* TAB 4: SCIENTIFIC VERIFICATION & LEADERBOARD */}
+      {activeTab === "performance" && <PerformanceView />}
 
-      {/* TAB 4: 6-MODEL ML LEADERBOARD */}
-      {activeTab === "leaderboard" && (
-        <main style={{ padding: "1.5rem" }}>
-          <div className="dashboard-card" style={{ padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--accent-cyan)", marginBottom: "0.5rem" }}>
-              Extended Multi-Model Baseline Competitive Leaderboard
-            </h2>
-            <p style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
-              Comparing Regime-Gated MoE against classical Model Output Statistics (MOS) and tabular ML baselines (Random Forest & Gradient Boosted Decision Trees):
-            </p>
+      {/* TAB 5: DATA PROVENANCE & ZERO LEAKAGE */}
+      {activeTab === "datatrust" && <DataTrustView />}
 
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", textAlign: "left" }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid var(--border-subtle)", color: "var(--text-muted)" }}>
-                  <th style={{ padding: "0.6rem" }}>Model Architecture</th>
-                  <th style={{ padding: "0.6rem" }}>Bulk RMSE</th>
-                  <th style={{ padding: "0.6rem" }}>Gain vs Raw</th>
-                  <th style={{ padding: "0.6rem" }}>Heavy Rain RMSE</th>
-                  <th style={{ padding: "0.6rem" }}>Heavy ETS (64.5mm)</th>
-                  <th style={{ padding: "0.6rem" }}>Heavy CSI</th>
-                  <th style={{ padding: "0.6rem" }}>Spatial FSS (3x3)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ background: "rgba(56, 189, 248, 0.08)", fontWeight: 700 }}>
-                  <td style={{ padding: "0.6rem", color: "#38bdf8" }}>Model C: Soft MoE (Ours)</td>
-                  <td style={{ padding: "0.6rem" }}>2.13 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>+81.2%</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>3.95 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#4ade80" }}>0.905</td>
-                  <td style={{ padding: "0.6rem" }}>0.908</td>
-                  <td style={{ padding: "0.6rem" }}>0.9931</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>Model B: Global QM (xsdba)</td>
-                  <td style={{ padding: "0.6rem" }}>5.33 mm</td>
-                  <td style={{ padding: "0.6rem" }}>+52.9%</td>
-                  <td style={{ padding: "0.6rem" }}>16.22 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.681</td>
-                  <td style={{ padding: "0.6rem" }}>0.689</td>
-                  <td style={{ padding: "0.6rem" }}>0.9390</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>Spatial Random Forest Regressor</td>
-                  <td style={{ padding: "0.6rem" }}>10.77 mm</td>
-                  <td style={{ padding: "0.6rem" }}>+4.9%</td>
-                  <td style={{ padding: "0.6rem" }}>34.83 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.511</td>
-                  <td style={{ padding: "0.6rem" }}>0.523</td>
-                  <td style={{ padding: "0.6rem" }}>0.8468</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>Linear MOS (Ridge Multiple Regression)</td>
-                  <td style={{ padding: "0.6rem" }}>10.37 mm</td>
-                  <td style={{ padding: "0.6rem" }}>+8.5%</td>
-                  <td style={{ padding: "0.6rem" }}>32.69 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.481</td>
-                  <td style={{ padding: "0.6rem" }}>0.492</td>
-                  <td style={{ padding: "0.6rem" }}>0.8156</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem" }}>Gradient Boosted Decision Trees</td>
-                  <td style={{ padding: "0.6rem" }}>11.71 mm</td>
-                  <td style={{ padding: "0.6rem", color: "#f87171" }}>-3.4%</td>
-                  <td style={{ padding: "0.6rem" }}>44.75 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.040</td>
-                  <td style={{ padding: "0.6rem" }}>0.042</td>
-                  <td style={{ padding: "0.6rem" }}>0.0997</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                  <td style={{ padding: "0.6rem", fontWeight: 600 }}>Model A: Raw NWP (Unadjusted)</td>
-                  <td style={{ padding: "0.6rem" }}>11.32 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.0%</td>
-                  <td style={{ padding: "0.6rem" }}>40.81 mm</td>
-                  <td style={{ padding: "0.6rem" }}>0.379</td>
-                  <td style={{ padding: "0.6rem" }}>0.387</td>
-                  <td style={{ padding: "0.6rem" }}>0.6743</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </main>
-      )}
+      {/* TAB 6: HOW IT WORKS & ARCHITECTURE */}
+      {activeTab === "methodology" && <HowItWorksView />}
 
-      {/* TAB 5: DATA PROVENANCE & LEAKAGE AUDIT */}
-      {activeTab === "provenance" && (
-        <main style={{ padding: "1.5rem" }}>
-          <div className="dashboard-card" style={{ padding: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--accent-cyan)", marginBottom: "0.5rem" }}>
-              Data Governance, Provenance & Zero-Leakage Policy
-            </h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "1.5rem", marginTop: "1rem" }}>
-              <div>
-                <h3 style={{ fontSize: "0.9rem", color: "#f8fafc", marginBottom: "0.5rem" }}>Strict Provenance Chain</h3>
-                <ul style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.6, paddingLeft: "1.2rem" }}>
-                  <li><strong>NWP Forecasts:</strong> NCUM 12km (operational) with GFS 0.25° public fallback.</li>
-                  <li><strong>Atmospheric State:</strong> NCMRWF IMDAA 12km reanalysis with ERA5 fallback.</li>
-                  <li><strong>Ground Truth Target:</strong> IMD 0.25° Gridded Rainfall (Verification-only, isolated).</li>
-                  <li><strong>Regime Cluster Seeds:</strong> Raut et al. (2026) 11 synoptic clusters mapped to 6 operational classes.</li>
-                </ul>
-              </div>
+      {/* District Detail Deep-Dive Drawer */}
+      <DistrictDetailDrawer
+        district={drawerDistrict}
+        onClose={() => setDrawerDistrict(null)}
+        onOpenOverride={(dist) => handleOpenOverride(dist as any)}
+      />
 
-              <div>
-                <h3 style={{ fontSize: "0.9rem", color: "#f8fafc", marginBottom: "0.5rem" }}>Leakage Prevention Guarantees</h3>
-                <ul style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.6, paddingLeft: "1.2rem" }}>
-                  <li><strong>Temporal Splitting:</strong> Strictly chronological partitions. Never random train/test split.</li>
-                  <li><strong>Normalization:</strong> Fitted strictly on past training chronologies.</li>
-                  <li><strong>Runtime Automated Leakage Auditor:</strong> Inspects feature names, tensors, and timestamps. Prohibits any observed ground truth inside the feature vector.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </main>
-      )}
-
-      {/* Forecaster Override Modal */}
-      {overrideModalOpen && selectedDistrict && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0, 0, 0, 0.75)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-          }}
-        >
-          <div
-            style={{
-              background: "#0f172a",
-              border: "1px solid #38bdf8",
-              borderRadius: "8px",
-              padding: "1.5rem",
-              width: "480px",
-              maxWidth: "90vw",
-            }}
-          >
-            <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#f8fafc", marginBottom: "0.5rem" }}>
-              Duty Forecaster Override: {selectedDistrict.name}
-            </h3>
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
-              Logged into immutable audit trail in compliance with IMD disaster SOP.
-            </p>
-
-            <form onSubmit={handleApplyOverride}>
-              <div style={{ marginBottom: "1rem" }}>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                  Target IMD Color Warning Tier:
-                </label>
-                <select
-                  value={overrideColor}
-                  onChange={(e) => setOverrideColor(e.target.value)}
-                  style={{
-                    width: "100%",
-                    background: "#1e293b",
-                    border: "1px solid var(--border-subtle)",
-                    color: "#f8fafc",
-                    padding: "0.5rem",
-                    borderRadius: "4px",
-                    fontSize: "0.82rem",
-                  }}
-                >
-                  <option value="RED">RED WARNING (Take Action)</option>
-                  <option value="ORANGE">ORANGE ALERT (Be Prepared)</option>
-                  <option value="YELLOW">YELLOW WATCH (Be Updated)</option>
-                  <option value="GREEN">GREEN (No Warning)</option>
-                </select>
-              </div>
-
-              <div style={{ marginBottom: "1rem" }}>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                  Rainfall Adjustment Multiplier (w_adj):
-                </label>
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0.5"
-                  max="2.5"
-                  value={overrideScale}
-                  onChange={(e) => setOverrideScale(parseFloat(e.target.value))}
-                  style={{
-                    width: "100%",
-                    background: "#1e293b",
-                    border: "1px solid var(--border-subtle)",
-                    color: "#f8fafc",
-                    padding: "0.5rem",
-                    borderRadius: "4px",
-                    fontSize: "0.82rem",
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: "1.25rem" }}>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                  Operational Rationale & Justification:
-                </label>
-                <textarea
-                  rows={3}
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
-                  required
-                  style={{
-                    width: "100%",
-                    background: "#1e293b",
-                    border: "1px solid var(--border-subtle)",
-                    color: "#f8fafc",
-                    padding: "0.5rem",
-                    borderRadius: "4px",
-                    fontSize: "0.82rem",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
-                <button
-                  type="button"
-                  onClick={() => setOverrideModalOpen(false)}
-                  style={{
-                    padding: "0.4rem 0.8rem",
-                    borderRadius: "4px",
-                    background: "transparent",
-                    border: "1px solid var(--border-subtle)",
-                    color: "var(--text-secondary)",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={submittingOverride}
-                  style={{
-                    padding: "0.4rem 1rem",
-                    borderRadius: "4px",
-                    background: "#38bdf8",
-                    border: "none",
-                    color: "#0f172a",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  {submittingOverride ? "Recording..." : "Apply & Audit"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Certified Duty Forecaster Override Modal */}
+      <ForecasterOverrideModal
+        isOpen={overrideModalOpen}
+        district={districtToOverride}
+        onClose={() => setOverrideModalOpen(false)}
+        onSubmit={handleApplyOverride}
+      />
     </div>
   );
 };
+export default App;

@@ -1,5 +1,9 @@
 {
   "metadata": {
+    "verification_status": "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION",
+    "evaluation_type": "Multi-Model Comparative Leaderboard (N=40 held-out)",
+    "data_integrity_policy": "ABSOLUTE_INTEGRITY_NO_FABRICATION",
+    "note": "Benchmarked against Linear MOS (Ridge), Spatial Random Forest, Hist Gradient Boosting, and Global QM on reproducible held-out synthetic chronologies. Not an operational archive evaluation.",
     "n_train_samples": 30,
     "n_test_samples": 40,
     "evaluated_models": [

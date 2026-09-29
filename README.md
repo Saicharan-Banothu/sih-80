@@ -19,7 +19,7 @@ Numerical Weather Prediction (NWP) rainfall forecasts across the Indian subconti
 
 **RegimeRain-AI** addresses these limitations via a scientifically defensible, hybrid physical-ML architecture:
 1. **Atmospheric Foundation Backbone**: Ingests 20 synoptic channels (surface pressure, temperature, moisture flux $\mathbf{Q} = (u \cdot q, v \cdot q)$, relative vorticity, and divergence).
-2. **Module A (Calibrated Regime Classifier)**: Maps atmospheric representations to a 6-class probabilistic weather regime vector ($\mathbf{p} \in \Delta^5$) calibrated via Platt temperature scaling.
+2. **Module A (Calibrated Regime Classifier)**: Maps atmospheric representations to a 6-class probabilistic weather regime vector ($\mathbf{p} \in \Delta^5$) calibrated via Platt temperature scaling. *(Scientific Note: The 6 operational regimes represent an operational design choice informed by Raut et al. 2026 11-cluster analysis and Neal et al. 2019/2022 synoptic weather patterns).*
 3. **Model C (Soft-Gated Mixture-of-Experts)**: 6 specialized residual neural experts $E_0 \dots E_5$ generating 7 monotonic quantiles ($q_{10}, q_{25}, q_{50}, q_{75}, q_{90}, q_{95}, q_{99}$). Quantile monotonicity ($q_k \le q_{k+1}$) is mathematically guaranteed via cumulative positive softplus parameterization.
 4. **Extreme Upper-Tail Pareto Model**: Inverts the predictive CDF and applies Generalized Pareto tail decay beyond $q_{99}$ to evaluate IMD exceedance risks: $P(R > 64.5\text{ mm})$, $P(R > 115.6\text{ mm})$, and $P(R > 204.5\text{ mm/day})$.
 5. **District Decision Support**: Aggregates grid forecasts into administrative districts and triggers the official IMD 4-stage color advisory SOP (**RED**, **ORANGE**, **YELLOW**, **GREEN**) with an immutable duty forecaster review and override audit trail.
@@ -27,6 +27,10 @@ Numerical Weather Prediction (NWP) rainfall forecasts across the Indian subconti
 ---
 
 ## 2. Scientific Verification & Benchmark Results
+
+> [!NOTE]
+> **Evaluation Mode: SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION**
+> The benchmark results below are evaluated on a controlled, chronologically held-out synthetic synoptic verification suite ($N=40$ five-day blocks) to rigorously demonstrate the mathematical formulations, pySTEPS multi-scale Fractions Skill Score (FSS), Continuous Ranked Probability Score (CRPS), and Paired Stationary Block-Bootstrap statistical significance testing. The ClimaX foundation backbone is running in active `LightweightResidualConvNet` fallback mode in this local prototype repository.
 
 Evaluated on strictly held-out test chronologies (zero lookahead leakage across time) with **Paired Stationary Block-Bootstrap Testing** (500 resamples, 5-day synoptic block lengths to account for meteorological autocorrelation):
 

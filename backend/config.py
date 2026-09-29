@@ -85,6 +85,33 @@ class SystemSettings:
         return self.system_config.get("server", {})
 
     @property
+    def environment_status(self) -> Dict[str, Any]:
+        """Explicit environment runtime status distinguishing demonstration from operational mode."""
+        return {
+            "mode": "DEMONSTRATION",
+            "mode_label": "DEMONSTRATION MODE (Reproducible Synoptic Scenario)",
+            "operational_readiness": "PROTOTYPE_DEMONSTRATION",
+            "backbone": {
+                "name": "LightweightResidualConvNet (Active Fallback)",
+                "status": "FALLBACK_ACTIVE",
+                "planned_target": "microsoft/climax",
+                "note": "ClimaX ViT pretrained checkpoint not loaded; lightweight residual spatial encoder active.",
+            },
+            "nwp_source": {
+                "active": "NOAA-GFS (Fallback)",
+                "primary_planned": "NCUM-G (NCMRWF)",
+                "note": "NCUM requires institutional MoES authorization; running GFS fallback in demo environment.",
+            },
+            "atmospheric_source": {
+                "active": "ERA5 (Fallback)",
+                "primary_planned": "IMDAA (NCMRWF)",
+                "note": "IMDAA reanalysis substituted with global ERA5 fallback for demonstration.",
+            },
+            "verification_status": "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION",
+            "data_policy": "ABSOLUTE_INTEGRITY_NO_FABRICATION",
+        }
+
+    @property
     def active_data_sources(self) -> Dict[str, Any]:
         sources = self.source_registry.get("sources", {})
         nwp_env = os.getenv("NWP_SOURCE", "GFS_FALLBACK")
@@ -100,6 +127,7 @@ class SystemSettings:
             ),
             "ground_truth": sources.get("ground_truth_rainfall", {}).get("primary", {}),
             "regime_seeds": sources.get("regime_seeds", {}).get("primary", {}),
+            "environment_status": self.environment_status,
         }
 
 

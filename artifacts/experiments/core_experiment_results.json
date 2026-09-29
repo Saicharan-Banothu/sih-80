@@ -1,11 +1,15 @@
 {
   "metadata": {
+    "verification_status": "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION",
+    "evaluation_type": "Controlled Methodology Benchmark (N=40 held-out)",
+    "data_integrity_policy": "ABSOLUTE_INTEGRITY_NO_FABRICATION",
+    "note": "Evaluated using Paired Stationary Block-Bootstrap on reproducible synthetic synoptic chronologies to demonstrate multi-scale FSS and extreme quantile verification methodology. Not an operational archive evaluation.",
     "n_samples": 40,
     "block_length_days": 5,
     "bootstrap_replications": 200,
     "models": {
       "Model_A": "Raw NWP (Operational Baseline)",
-      "Model_B": "Global Quantile Mapping (Standard Prior)",
+      "Model_B": "Global Quantile Mapping (Standard Climatological Prior)",
       "Model_C": "Regime-Gated Mixture-of-Experts (Proposed System)"
     }
   },

@@ -50,6 +50,7 @@ class ProvenanceResponse(BaseModel):
     data_policy: str
     last_updated: str
     sources: Dict[str, Any]
+    environment_status: Optional[Dict[str, Any]] = None
 
 
 class ForecasterOverrideRequest(BaseModel):

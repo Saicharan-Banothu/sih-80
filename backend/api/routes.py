@@ -1,4 +1,9 @@
-"""API Router for SIH-80 Operational Forecast, District Decision Support, and Scientific Verification."""
+"""API Router for SIH-80 Operational Forecast, District Decision Support, and Scientific Verification.
+
+Directly invokes the real OperationalInferencePipeline:
+  20-Channel Synoptic Tensor -> JointRegimeAwareModel -> Calibrated Probabilities -> Soft MoE Quantiles
+  -> Continuous Tail Inversion -> District Decision Support -> Natural-Language Explainability.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.config import settings
 from backend.schemas.common import (
@@ -16,48 +21,14 @@ from backend.schemas.common import (
     ProvenanceResponse,
     ForecasterOverrideRequest,
 )
-from ml.decision.district_engine import DistrictDecisionEngine
 from ml.decision.forecaster_audit import ForecasterReviewManager
-from ml.correction.tail_model import ExtremeRainfallTailModel
-from scripts.generate_district_advisories import generate_operational_scenario
+from ml.joint.inference_pipeline import OperationalInferencePipeline
 
 router = APIRouter()
 
 # Singleton instances
-district_engine = DistrictDecisionEngine()
+pipeline = OperationalInferencePipeline.get_instance()
 review_manager = ForecasterReviewManager()
-
-# Cached operational forecast
-_CACHED_SCENARIO = None
-
-
-def get_or_create_scenario():
-    global _CACHED_SCENARIO
-    if _CACHED_SCENARIO is None:
-        lats, lons, q50, q90, q99, tail_probs, regime_probs = generate_operational_scenario()
-        advisories = district_engine.aggregate_district_forecasts(
-            lats=lats,
-            lons=lons,
-            q50_grid=q50,
-            q90_grid=q90,
-            q99_grid=q99,
-            p_heavy_grid=tail_probs["P_gt_64_5mm"],
-            p_very_heavy_grid=tail_probs["P_gt_115_6mm"],
-            p_extreme_grid=tail_probs["P_gt_204_5mm"],
-            regime_probabilities=regime_probs,
-        )
-        _CACHED_SCENARIO = {
-            "lats": lats.tolist(),
-            "lons": lons.tolist(),
-            "q50_mean": float(np.mean(q50)),
-            "q50_max": float(np.max(q50)),
-            "q90_max": float(np.max(q90)),
-            "q99_max": float(np.max(q99)),
-            "regime_probabilities": regime_probs,
-            "dominant_regime": max(regime_probs.items(), key=lambda kv: kv[1])[0],
-            "advisories": advisories,
-        }
-    return _CACHED_SCENARIO
 
 
 # -------------------------------------------------------------
@@ -91,6 +62,7 @@ async def get_provenance() -> ProvenanceResponse:
         data_policy=registry.get("data_policy", "ABSOLUTE_INTEGRITY_NO_FABRICATION"),
         last_updated=registry.get("last_updated", "2026-09-29T22:15:00Z"),
         sources=registry.get("sources", {}),
+        environment_status=settings.environment_status,
     )
 
 
@@ -102,15 +74,20 @@ async def get_model_info() -> ModelInfoResponse:
         system_name=settings.project_info.get("name", "RegimeRain-AI"),
         version=settings.project_info.get("version", "0.1.0"),
         architecture="Soft-Gated Mixture-of-Experts with Foundation Atmospheric Backbone",
-        foundation_backbone=model_cfg.get("foundation_backbone", {}),
+        foundation_backbone={
+            "name": "LightweightSpatialEncoder (Fallback)",
+            "status": "FALLBACK_ACTIVE",
+            "full_target": "microsoft/climax",
+            "note": "ClimaX ViT weights not loaded in local environment; executing high-capacity residual CNN fallback.",
+        },
         bias_correction=model_cfg.get("bias_correction", {}),
         regimes=settings.regimes,
         quantiles=model_cfg.get("bias_correction", {}).get("quantiles", []),
         critical_thresholds_mm=settings.critical_thresholds,
         verification_frameworks=["pySTEPS", "xsdba", "scipy"],
         disclaimer=(
-            "Prototype Meteorological Decision-Support System for SIH 2026. "
-            "Does not issue official warnings; all advisories require certified human forecaster review."
+            "Decision-Support System for SIH 2026 Problem Statement 80. "
+            "Does not issue official statutory warnings; all advisories require certified human forecaster review."
         ),
     )
 
@@ -130,49 +107,80 @@ async def get_thresholds() -> Dict[str, Any]:
 # -------------------------------------------------------------
 
 @router.get("/forecast/predict", summary="Run Operational Forecast Inference")
-async def get_forecast_prediction() -> Dict[str, Any]:
-    """Return operational regime prediction, uncertainty quantiles, and alert summary."""
-    import numpy as np
-    scenario = get_or_create_scenario()
-
-    # Alert counts
-    counts = {"RED": 0, "ORANGE": 0, "YELLOW": 0, "GREEN": 0}
-    for a in scenario["advisories"]:
-        counts[a["advisory"]["color_code"]] += 1
+async def get_forecast_prediction(
+    lead_hours: int = Query(24, description="Forecast lead time in hours (24, 48, or 72)")
+) -> Dict[str, Any]:
+    """Execute real neural model inference and return regime probabilities and domain summaries."""
+    if lead_hours not in (24, 48, 72):
+        lead_hours = 24
+    inference_result = pipeline.run_inference(lead_hours=lead_hours)
 
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "dominant_regime": scenario["dominant_regime"],
-        "regime_probabilities": scenario["regime_probabilities"],
-        "domain_stats": {
-            "mean_q50_mm": round(scenario["q50_mean"], 1),
-            "peak_q50_mm": round(scenario["q50_max"], 1),
-            "peak_q90_mm": round(scenario["q90_max"], 1),
-            "peak_q99_mm": round(scenario["q99_max"], 1),
-        },
-        "district_alert_counts": counts,
-        "total_districts": len(scenario["advisories"]),
-        "model_version": "JointRegimeAware-v0.1.0",
+        "timestamp": inference_result["forecast_valid_time"],
+        "lead_time_hours": inference_result["lead_time_hours"],
+        "mode": inference_result["mode"],
+        "mode_label": inference_result["mode_label"],
+        "data_source_status": inference_result["data_source_status"],
+        "data_integrity_policy": inference_result["data_integrity_policy"],
+        "dominant_regime": inference_result["dominant_regime"],
+        "regime_probabilities": inference_result["regime_probabilities"],
+        "domain_stats": inference_result["domain_stats"],
+        "district_alert_counts": inference_result["district_alert_counts"],
+        "total_districts": inference_result["total_districts"],
+        "model_metadata": inference_result["model_metadata"],
     }
 
 
 @router.get("/forecast/districts", summary="Get All District Advisories & IMD Color Alerts")
-async def get_district_advisories() -> List[Dict[str, Any]]:
-    """Return all districts with real-time IMD color codes, rainfall statistics, and action texts."""
-    import numpy as np
-    scenario = get_or_create_scenario()
-    return scenario["advisories"]
+async def get_district_advisories(
+    lead_hours: int = Query(24, description="Forecast lead time in hours (24, 48, or 72)")
+) -> List[Dict[str, Any]]:
+    """Return all districts with real-time IMD color codes, rainfall statistics, explanations, and action texts."""
+    if lead_hours not in (24, 48, 72):
+        lead_hours = 24
+    inference_result = pipeline.run_inference(lead_hours=lead_hours)
+    return inference_result["districts"]
+
+
+@router.get("/forecast/district/{district_id}", summary="Get Single District Deep Intelligence")
+async def get_single_district_forecast(
+    district_id: str,
+    lead_hours: int = Query(24, description="Forecast lead time in hours (24, 48, or 72)")
+) -> Dict[str, Any]:
+    """Return detailed intelligence, quantiles, exceedances, timeline, and explanation for a specific district."""
+    if lead_hours not in (24, 48, 72):
+        lead_hours = 24
+    inference_result = pipeline.run_inference(lead_hours=lead_hours)
+    for dist in inference_result["districts"]:
+        if dist["district_id"].upper() == district_id.upper():
+            return dist
+    raise HTTPException(status_code=404, detail=f"District '{district_id}' not found.")
+
+
+@router.get("/forecast/map", summary="Get Geospatial Grids for Map Layers")
+async def get_map_layers(
+    lead_hours: int = Query(24, description="Forecast lead time in hours (24, 48, or 72)")
+) -> Dict[str, Any]:
+    """Return gridded fields (median rainfall, heavy rain probability, very heavy probability, and raw NWP) for map rendering."""
+    if lead_hours not in (24, 48, 72):
+        lead_hours = 24
+    inference_result = pipeline.run_inference(lead_hours=lead_hours)
+    return {
+        "lead_time_hours": lead_hours,
+        "mode": inference_result["mode"],
+        "dominant_regime": inference_result["dominant_regime"],
+        "spatial_grid": inference_result["spatial_grid"],
+    }
 
 
 @router.post("/forecast/override", summary="Forecaster Manual Alert Override")
 async def override_district_advisory(req: ForecasterOverrideRequest) -> Dict[str, Any]:
     """Apply an operational meteorologist override to a district alert with provenance tracking."""
-    import numpy as np
-    scenario = get_or_create_scenario()
+    inference_result = pipeline.run_inference(lead_hours=24)
     target_advisory = None
     target_idx = -1
 
-    for idx, a in enumerate(scenario["advisories"]):
+    for idx, a in enumerate(inference_result["districts"]):
         if a["district_id"].upper() == req.district_id.upper():
             target_advisory = a
             target_idx = idx
@@ -189,7 +197,7 @@ async def override_district_advisory(req: ForecasterOverrideRequest) -> Dict[str
         justification_reason=req.justification_reason,
     )
 
-    scenario["advisories"][target_idx] = updated
+    inference_result["districts"][target_idx] = updated
     return {
         "status": "SUCCESS",
         "message": f"District {req.district_id} updated by {req.forecaster_id}.",
@@ -213,7 +221,13 @@ async def get_benchmark_results() -> Dict[str, Any]:
     path = Path("artifacts/experiments/core_experiment_results.json")
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            data["verification_status"] = "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION"
+            data["validation_note"] = (
+                "Evaluated using Paired Stationary Block-Bootstrap on reproducible synthetic synoptic chronologies (N=40). "
+                "Demonstrates multi-scale FSS and extreme quantile verification methodology."
+            )
+            return data
     raise HTTPException(status_code=404, detail="Benchmark results not yet generated.")
 
 
@@ -223,7 +237,9 @@ async def get_ablation_results() -> Dict[str, Any]:
     path = Path("artifacts/experiments/ablation_study_results.json")
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            data["verification_status"] = "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION"
+            return data
     raise HTTPException(status_code=404, detail="Ablation results not yet generated.")
 
 
@@ -233,5 +249,7 @@ async def get_leaderboard_results() -> Dict[str, Any]:
     path = Path("artifacts/experiments/extended_baseline_results.json")
     if path.exists():
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            data["verification_status"] = "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION"
+            return data
     raise HTTPException(status_code=404, detail="Leaderboard results not yet generated.")

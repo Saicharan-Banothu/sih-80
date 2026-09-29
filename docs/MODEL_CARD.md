@@ -25,10 +25,11 @@
 
 ### 3. Architecture Specification
 1. **Atmospheric Backbone**:
-   - Primary: Microsoft ClimaX Foundation Vision Transformer Interface.
-   - Operational Fallback: `ResidualAtmosphericEncoder` (4-stage residual convolutional network with GELU activations and 2D batch normalization, 128-dimensional latent space).
+   - Primary Operational Target: Microsoft ClimaX Foundation Vision Transformer.
+   - Active Implementation in Local Prototype: `LightweightResidualConvNet` fallback encoder (4-stage residual convolutional network with GELU activations and 2D batch normalization, 128-dimensional latent space). ClimaX ViT weights (hundreds of MB) are substituted with this lightweight encoder to permit agile local development while maintaining identical tensor interfaces.
 2. **Probabilistic Regime Classifier (Module A)**:
    - Maps 128D atmospheric state embeddings to 6 operational weather regimes.
+   - **Scientific Attribution**: The 6-class regime taxonomy is an operational prototype design choice informed by Raut et al. (2026, WCD, DOI: 10.5281/zenodo.20099064, who derived 11 objective spatial rainfall clusters) and Neal et al. (2019, 2022 synoptic weather patterns).
    - Calibrated via Platt Temperature Scaling ($\hat{p} = \text{Softmax}(z / T)$) optimizing Expected Calibration Error (ECE) and Brier Score.
 3. **Soft-Gated Mixture-of-Experts (Model C)**:
    - 6 specialized residual neural experts:
@@ -58,7 +59,11 @@
 
 ---
 
-### 5. Verification & Benchmark Performance (Held-Out Test Set)
+### 5. Verification & Benchmark Performance (Synthetic Methodology Demonstration)
+
+> [!NOTE]
+> **Evaluation Mode: SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION**
+> The benchmark metrics below were evaluated on a controlled, held-out synthetic synoptic verification suite ($N=40$ chronologically partitioned 5-day blocks) designed to demonstrate the mathematical validity of the soft-gated MoE, pySTEPS multi-scale Fractions Skill Score (FSS), Continuous Ranked Probability Score (CRPS), and Paired Stationary Block-Bootstrap hypothesis testing ($p < 0.0001$). These metrics demonstrate algorithmic correctness; they are not claimed as multi-decadal historical archive validations.
 
 | Model Architecture | Bulk RMSE | Heavy Rain RMSE | Heavy ETS ($R \ge 64.5$) | FSS (Scale 3x3) | CRPS |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -68,7 +73,7 @@
 | **Baseline: Spatial Random Forest** | 10.77 mm | 34.83 mm | 0.511 | 0.8468 | 3.95 mm |
 | **Model C: Soft MoE (Ours)** | **2.13 mm** | **3.95 mm** | **0.903** | **0.9926** | **2.40 mm** |
 
-- **Paired Block-Bootstrap Significance**:
+- **Paired Block-Bootstrap Significance (Politis & Romano, 1994, 500 resamples, 5-day blocks)**:
   - RMSE reduction over Global QM: $-3.211\text{ mm}$ [95% CI: $-3.476, -2.852$], $p < 0.0001$.
   - Heavy rain ETS increase over Global QM: $+0.232$ [95% CI: $+0.206, +0.261$], $p < 0.0001$.
 

@@ -1,4 +1,19 @@
-"""Operational prototype regime taxonomy definitions and metadata."""
+"""Operational prototype regime taxonomy definitions and metadata.
+
+Scientific Attribution & Modeling Taxonomy:
+  - Raut et al. (2026, WCD, DOI: 10.5281/zenodo.20099064) derived 11 objective spatial rainfall
+    clusters over India using clustering on long-term daily precipitation.
+  - Neal et al. (2019, 2022) defined broader synoptic weather-pattern frameworks for South Asia.
+  - The 6-class regime taxonomy below is an operational modeling design choice informed by this
+    literature to stratify distinct physical NWP bias modes:
+      0: ACTIVE_MONSOON
+      1: BREAK_MONSOON
+      2: MONSOON_DEPRESSION_LOW
+      3: OROGRAPHIC
+      4: COASTAL_CONVECTIVE
+      5: WESTERN_DISTURBANCE
+  - The model outputs continuous probabilistic weights p in Delta^5 rather than a single deterministic class.
+"""
 
 from __future__ import annotations
 
