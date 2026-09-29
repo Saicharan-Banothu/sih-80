@@ -1,0 +1,123 @@
+# ==============================================================================
+# SIH 2026 — PROBLEM STATEMENT 80: DATA SOURCE REGISTRY
+# Full Provenance, Access Specifications, and Explicit Fallback Paths
+# ==============================================================================
+
+registry_version: "1.0.0"
+last_updated: "2026-09-29T22:15:00Z"
+data_policy: "ABSOLUTE_INTEGRITY_NO_FABRICATION"
+
+sources:
+  # 1. Operational Numerical Weather Prediction (NWP)
+  nwp_forecast:
+    primary:
+      name: "NCUM-G"
+      provider: "NCMRWF (National Centre for Medium Range Weather Forecasting)"
+      full_title: "NCMRWF Unified Model Global Atmospheric Forecast"
+      resolution: "12 km (~0.12°)"
+      lead_time_coverage: "0 - 240 hours"
+      cycles_utc: ["00", "12"]
+      variables:
+        - "total_precipitation_flux"
+        - "u_wind_850hpa"
+        - "v_wind_850hpa"
+        - "u_wind_200hpa"
+        - "v_wind_200hpa"
+        - "mean_sea_level_pressure"
+        - "specific_humidity_850hpa"
+        - "geopotential_height_500hpa"
+      access_method: "OPeNDAP / FTP (Institutional authorization required)"
+      availability_status: "AUTHORIZED_RESTRICTED"
+      license: "Government of India / MoES Data Policy"
+
+    fallback:
+      name: "NOAA-GFS"
+      provider: "NOAA / NCEP"
+      full_title: "Global Forecast System 0.25 Degree Gridded Forecast"
+      resolution: "0.25° (~27 km)"
+      lead_time_coverage: "0 - 120 hours"
+      cycles_utc: ["00", "06", "12", "18"]
+      variables:
+        - "prate_surface"
+        - "ugrd_850mb"
+        - "vgrd_850mb"
+        - "ugrd_200mb"
+        - "vgrd_200mb"
+        - "prmsl_msl"
+        - "spfh_850mb"
+        - "hgt_500mb"
+      access_method: "NOAA AWS Open Data / NOMADS Open Access"
+      availability_status: "PUBLIC_ACTIVE"
+      license: "Public Domain / CC0 equivalent"
+
+  # 2. Regional Atmospheric Reanalysis / Atmospheric State
+  atmospheric_state:
+    primary:
+      name: "IMDAA"
+      provider: "NCMRWF & IMD with UK Met Office"
+      full_title: "Indian Monsoon Data Assimilation and Analysis"
+      resolution: "12 km (~0.12°)"
+      period: "1979 - Present"
+      variables:
+        - "surface_pressure"
+        - "mean_sea_level_pressure"
+        - "wind_components_pressure_levels"
+        - "specific_humidity"
+        - "temperature"
+      access_method: "NCMRWF Data Portal (Authorized access)"
+      availability_status: "AUTHORIZED_RESTRICTED"
+      license: "MoES Non-commercial Research License"
+
+    fallback:
+      name: "ERA5"
+      provider: "ECMWF / Copernicus Climate Change Service (C3S)"
+      full_title: "ECMWF Reanalysis v5"
+      resolution: "0.25° (~31 km)"
+      period: "1940 - Present"
+      variables:
+        - "total_precipitation"
+        - "mean_sea_level_pressure"
+        - "u_component_of_wind"
+        - "v_component_of_wind"
+        - "specific_humidity"
+        - "geopotential"
+      access_method: "Copernicus Climate Data Store (CDS) API"
+      availability_status: "PUBLIC_ACTIVE"
+      license: "Creative Commons Attribution 4.0 International (CC-BY-4.0)"
+
+  # 3. Observational Ground Truth Rainfall
+  ground_truth_rainfall:
+    primary:
+      name: "IMD-0.25-GRIDDED"
+      provider: "India Meteorological Department (IMD)"
+      full_title: "IMD Daily Gridded Rainfall Data (0.25° x 0.25°)"
+      resolution: "0.25° latitude x 0.25° longitude"
+      spatial_extent: "6.5°N - 38.5°N, 66.5°E - 100.0°E"
+      frequency: "Daily (08:30 IST / 03:00 UTC accumulation)"
+      units: "mm/day"
+      variables: ["rainfall"]
+      access_method: "Subhradip25/imdR package & IMD Pune Climate Data Services"
+      availability_status: "ACTIVE"
+      license: "MoES / IMD Research Usage"
+
+  # 4. Regime Seed Information / Clustering
+  regime_seeds:
+    primary:
+      name: "Raut-et-al-2026-Clusters"
+      provider: "Raut et al. (2026), Weather and Climate Dynamics (WCD)"
+      doi: "10.5281/zenodo.20099064"
+      paper: "https://wcd.copernicus.org/articles/7/1173/2026/"
+      type: "11 objectively derived synoptic weather clusters"
+      role: "Weak-supervision seed information for prototype 6-class operational taxonomy"
+      mapping_policy: "DOCUMENTED_TAXONOMY_MAPPING_NOT_EQUIVALENCE"
+      license: "Open Access (Copernicus / Zenodo CC-BY 4.0)"
+
+  # 5. Geospatial Boundaries
+  geospatial_boundaries:
+    primary:
+      name: "Survey-of-India-Districts"
+      provider: "Survey of India / Open Data Initiative"
+      coverage: "All 700+ Indian revenue districts with state codes"
+      format: "GeoJSON / Shapefile / TopoJSON"
+      coordinate_system: "EPSG:4326 (WGS84)"
+      license: "Open Government Data (OGD) India"

@@ -1,0 +1,100 @@
+{
+  "metadata": {
+    "n_train_samples": 30,
+    "n_test_samples": 40,
+    "evaluated_models": [
+      "Model_A_Raw_NWP",
+      "Linear_MOS",
+      "Model_B_Global_QM",
+      "Random_Forest",
+      "Gradient_Boosting",
+      "Model_C_Soft_MoE_Ours"
+    ]
+  },
+  "leaderboard": {
+    "Model_A_Raw_NWP": {
+      "rmse": 11.325,
+      "mae": 7.23,
+      "bias": -3.911,
+      "corr": 0.8392,
+      "heavy_rmse": 40.81,
+      "pod_heavy": 0.4024,
+      "far_heavy": 0.0879,
+      "csi_heavy": 0.3874,
+      "ets_heavy": 0.3788,
+      "bias_frequency_heavy": 0.4412,
+      "fss_heavy_scale3": 0.6743,
+      "rmse_improvement_vs_raw_pct": 0.0
+    },
+    "Linear_MOS": {
+      "rmse": 10.367,
+      "mae": 7.036,
+      "bias": -0.549,
+      "corr": 0.8392,
+      "heavy_rmse": 32.69,
+      "pod_heavy": 0.5816,
+      "far_heavy": 0.2382,
+      "csi_heavy": 0.4921,
+      "ets_heavy": 0.4812,
+      "bias_frequency_heavy": 0.7634,
+      "fss_heavy_scale3": 0.8156,
+      "rmse_improvement_vs_raw_pct": 8.5
+    },
+    "Model_B_Global_QM": {
+      "rmse": 5.33,
+      "mae": 3.953,
+      "bias": -2.68,
+      "corr": 0.9784,
+      "heavy_rmse": 16.22,
+      "pod_heavy": 0.6885,
+      "far_heavy": 0.0,
+      "csi_heavy": 0.6885,
+      "ets_heavy": 0.6814,
+      "bias_frequency_heavy": 0.6885,
+      "fss_heavy_scale3": 0.939,
+      "rmse_improvement_vs_raw_pct": 52.9
+    },
+    "Random_Forest": {
+      "rmse": 10.765,
+      "mae": 7.125,
+      "bias": -0.955,
+      "corr": 0.8262,
+      "heavy_rmse": 34.83,
+      "pod_heavy": 0.6765,
+      "far_heavy": 0.303,
+      "csi_heavy": 0.5227,
+      "ets_heavy": 0.5108,
+      "bias_frequency_heavy": 0.9706,
+      "fss_heavy_scale3": 0.8468,
+      "rmse_improvement_vs_raw_pct": 4.9
+    },
+    "Gradient_Boosting": {
+      "rmse": 11.708,
+      "mae": 7.272,
+      "bias": -1.569,
+      "corr": 0.7964,
+      "heavy_rmse": 44.75,
+      "pod_heavy": 0.0428,
+      "far_heavy": 0.36,
+      "csi_heavy": 0.0418,
+      "ets_heavy": 0.0397,
+      "bias_frequency_heavy": 0.0668,
+      "fss_heavy_scale3": 0.0997,
+      "rmse_improvement_vs_raw_pct": -3.4
+    },
+    "Model_C_Soft_MoE_Ours": {
+      "rmse": 2.131,
+      "mae": 1.682,
+      "bias": -0.27,
+      "corr": 0.9942,
+      "heavy_rmse": 3.95,
+      "pod_heavy": 0.9118,
+      "far_heavy": 0.0044,
+      "csi_heavy": 0.9081,
+      "ets_heavy": 0.9053,
+      "bias_frequency_heavy": 0.9158,
+      "fss_heavy_scale3": 0.9931,
+      "rmse_improvement_vs_raw_pct": 81.2
+    }
+  }
+}

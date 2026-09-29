@@ -1,0 +1,149 @@
+# ==============================================================================
+# SIH 2026 — PROBLEM STATEMENT 80: REGIME-AWARE RAINFALL FORECAST CORRECTION
+# Central System Configuration
+# ==============================================================================
+
+project:
+  name: "Regime-Aware AI/ML Rainfall Forecast Correction and Decision-Support System"
+  short_name: "RegimeRain-AI"
+  version: "0.1.0"
+  sih_problem_statement: 80
+  target_region: "India (National & District-level)"
+  environment: "development"
+
+# Six Operational Prototype Regimes
+# Note: This is an operational prototype taxonomy conditioned on atmospheric features
+# and informed by Raut et al. 2026 seed clusters. It is not an official IMD standard taxonomy.
+regimes:
+  taxonomy:
+    - id: 0
+      name: "ACTIVE_MONSOON"
+      code: "AM"
+      description: "Strong monsoon trough, vigorous low-level westerlies, widespread convective/stratiform rain."
+    - id: 1
+      name: "BREAK_MONSOON"
+      code: "BM"
+      description: "Monsoon trough shifted north to Himalayan foothills, suppressed rainfall over central India."
+    - id: 2
+      name: "MONSOON_DEPRESSION_LOW"
+      code: "MDL"
+      description: "Synoptic-scale low-pressure system or depression originating in Bay of Bengal / Arabian Sea."
+    - id: 3
+      name: "OROGRAPHIC"
+      code: "ORO"
+      description: "Terrain-forced mechanical uplift along Western Ghats, Northeast hills, or sub-Himalayan belt."
+    - id: 4
+      name: "COASTAL_CONVECTIVE"
+      code: "CC"
+      description: "Localized mesoscale convection driven by land-sea breeze boundaries and sea surface thermal contrasts."
+    - id: 5
+      name: "WESTERN_DISTURBANCE"
+      code: "WD"
+      description: "Mid-latitude upper-tropospheric westerly trough affecting north/northwest India during non-monsoon/transition."
+
+# Official IMD Rainfall Classification & Warning Thresholds (mm/day)
+thresholds:
+  imd_categories:
+    no_rain_light:
+      min: 0.0
+      max: 15.5
+      label: "Very Light to Light Rain"
+    moderate:
+      min: 15.6
+      max: 64.4
+      label: "Moderate Rain"
+    heavy:
+      min: 64.5
+      max: 115.5
+      label: "Heavy Rain"
+    very_heavy:
+      min: 115.6
+      max: 204.4
+      label: "Very Heavy Rain"
+    extremely_heavy:
+      min: 204.5
+      max: 9999.0
+      label: "Extremely Heavy Rain"
+  
+  critical_levels_mm:
+    heavy: 64.5
+    very_heavy: 115.6
+    extremely_heavy: 204.5
+
+  # Prototype decision-support warning criteria (subject to human forecaster review)
+  warnings:
+    green:
+      label: "No Warning (Watch)"
+      color: "#22c55e"
+      heavy_prob_max: 0.20
+    yellow:
+      label: "Watch / Be Updated"
+      color: "#eab308"
+      heavy_prob_min: 0.20
+      heavy_prob_max: 0.50
+    orange:
+      label: "Alert / Be Prepared"
+      color: "#f97316"
+      heavy_prob_min: 0.50
+      very_heavy_prob_min: 0.25
+    red:
+      label: "Warning / Take Action"
+      color: "#ef4444"
+      very_heavy_prob_min: 0.50
+      extremely_heavy_prob_min: 0.20
+
+# Geographic Domain & Spatial Discretization
+domain:
+  region: "India"
+  lat_min: 6.5
+  lat_max: 38.5
+  lon_min: 68.0
+  lon_max: 98.0
+  resolution_deg: 0.25 # Matches IMD gridded resolution (~27 km)
+  elevation_mask_required: true
+
+# Forecast Cycles & Lead Times
+forecast:
+  cycles_utc: ["00", "12"]
+  lead_times_hours: [24, 48, 72]
+  accumulation_window_hours: 24
+
+# Model Architecture Configuration
+model:
+  foundation_backbone:
+    primary: "ClimaX"
+    fallback: "LightweightResidualConvNet"
+    pretrained_weights_path: "artifacts/checkpoints/climax_backbone.pt"
+    freeze_backbone: true
+  
+  bias_correction:
+    baseline: "xsdba_global_qm" # Standalone xsdba quantile mapping baseline
+    primary: "regime_gated_moe" # Six differentiable residual experts with soft gating
+    quantiles: [0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99]
+    wet_day_threshold_mm: 0.1 # Wet/dry discrimination cutoff
+  
+  calibration:
+    method: "temperature_scaling"
+    evaluation: "ece_brier"
+
+# Verification & Skill Metrics Protocol
+verification:
+  deterministic_metrics: ["RMSE", "MAE", "BIAS", "CORR"]
+  categorical_metrics: ["ETS", "CSI", "POD", "FAR"]
+  spatial_metrics: ["FSS"] # pySTEPS Fraction Skill Score
+  probabilistic_metrics: ["BrierScore", "BrierSkillScore", "CRPS", "Reliability", "Sharpness"]
+  fss_scales_km: [25, 50, 100, 200]
+  fss_thresholds_mm: [15.6, 64.5, 115.6]
+
+# Server and API Settings
+server:
+  host: "127.0.0.1"
+  port: 8000
+  reload: true
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:3000"
+    - "http://127.0.0.1:5173"
+  api_prefix: "/api/v1"
+  log_level: "info"
