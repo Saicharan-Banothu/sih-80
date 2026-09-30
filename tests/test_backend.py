@@ -150,3 +150,56 @@ def test_verification_artifacts_endpoints():
     lead_resp = client.get("/api/v1/verification/leaderboard")
     assert lead_resp.status_code == 200
     assert "leaderboard" in lead_resp.json()
+
+
+def test_auth_login_and_me():
+    """Verify demo login with valid credentials and /auth/me endpoint."""
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"email": "district.officer@demo.regimerain", "password": "demo2026"}
+    )
+    assert login_resp.status_code == 200
+    data = login_resp.json()
+    assert "token" in data
+    assert data["user"]["role"] == "District Officer"
+    assert data["user"]["role_key"] == "district_officer"
+
+    # Test me
+    me_resp = client.get("/api/v1/auth/me?email=district.officer@demo.regimerain")
+    assert me_resp.status_code == 200
+    assert me_resp.json()["name"] == "Dr. A. Verma"
+
+
+def test_watchlist_operations():
+    """Verify watchlist get, add, and remove endpoints."""
+    # Get initial
+    resp = client.get("/api/v1/watchlist?user_email=district.officer@demo.regimerain")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "watchlist" in data
+
+    # Add district
+    add_resp = client.post(
+        "/api/v1/watchlist?user_email=district.officer@demo.regimerain",
+        json={"district_id": "MH_RAT"}
+    )
+    assert add_resp.status_code == 200
+    assert "MH_RAT" in add_resp.json()["watchlist"]
+
+    # Delete district
+    del_resp = client.delete(
+        "/api/v1/watchlist/MH_RAT?user_email=district.officer@demo.regimerain"
+    )
+    assert del_resp.status_code == 200
+    assert "MH_RAT" not in del_resp.json()["watchlist"]
+
+
+def test_alerts_endpoint():
+    """Verify operational alerts endpoint returns active alerts and counts."""
+    resp = client.get("/api/v1/alerts?lead_hours=24")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_alerts" in data
+    assert "alerts" in data
+    assert isinstance(data["alerts"], list)
+    assert data["lead_hours"] == 24

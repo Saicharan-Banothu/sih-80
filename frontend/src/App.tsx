@@ -10,12 +10,25 @@ import {
   RefreshCw,
   MapPin,
   CheckCircle,
+  Bell,
+  GitCompare,
+  BarChart2,
+  User,
+  LogOut,
+  ChevronDown,
+  ShieldCheck,
+  Building2,
 } from "lucide-react";
 import { ForecastView } from "./components/ForecastView";
 import { DistrictsCatalogView } from "./components/DistrictsCatalogView";
+import { AlertsView } from "./components/AlertsView";
+import { RawVsCorrectedView } from "./components/RawVsCorrectedView";
+import { PerformanceView } from "./components/PerformanceView";
 import { DistrictDetailDrawer } from "./components/DistrictDetailDrawer";
 import { ForecasterOverrideModal } from "./components/ForecasterOverrideModal";
 import { MapLayerType, DistrictAdvisory } from "./components/IndiaMap";
+import { LoginPage } from "./components/LoginPage";
+import { useAuth } from "./context/AuthContext";
 
 interface ForecastPrediction {
   dominant_regime: string;
@@ -37,12 +50,15 @@ interface ForecastPrediction {
 }
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"forecast" | "districts">("forecast");
+  const { user, isAuthenticated, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState<"forecast" | "districts" | "alerts" | "comparison" | "benchmarks">("forecast");
+  const [userMenuOpen, setUserMenuOpen] = useState<boolean>(false);
   const [districts, setDistricts] = useState<DistrictAdvisory[]>([]);
   const [prediction, setPrediction] = useState<ForecastPrediction | null>(null);
   const [leadHours, setLeadHours] = useState<number>(24);
   const [activeMapLayer, setActiveMapLayer] = useState<MapLayerType>("RAIN");
   const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
+
 
   // Watchlist state
   const [watchlist, setWatchlist] = useState<string[]>(() => {
@@ -980,23 +996,66 @@ export const App: React.FC = () => {
       )
     : [];
 
+  // If not authenticated, render institutional login screen
+  if (!isAuthenticated || !user) {
+    return <LoginPage />;
+  }
+
+  const activeAlertCount = districts.filter((d) => d.advisory?.color_code && d.advisory.color_code !== "GREEN").length;
+
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        minHeight: "100vh",
-        background: "#090d16",
-        color: "#f8fafc",
-        fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-      }}
-    >
-      {/* Primary Clean Header */}
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#0b1120", color: "#f8fafc" }}>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            background: "rgba(11, 17, 32, 0.8)",
+            backdropFilter: "blur(4px)",
+            padding: "8px 24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: "1px solid rgba(56, 189, 248, 0.2)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "12px", color: "#38bdf8" }}>
+            <RefreshCw size={14} className="animate-spin" />
+            <span>Executing Neural Inference Pipeline (lead_hours={leadHours}h)...</span>
+          </div>
+          <div
+            style={{
+              width: "120px",
+              height: "3px",
+              background: "#1e293b",
+              borderRadius: "2px",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: "40%",
+                background: "linear-gradient(90deg, #0284c7, #38bdf8)",
+                borderRadius: "2px",
+                animation: "shimmer 1.2s infinite ease-in-out",
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Main Institutional Header */}
       <header
         style={{
           background: "rgba(15, 23, 42, 0.95)",
           borderBottom: "1px solid #334155",
-          padding: "12px 24px",
+          padding: "10px 24px",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -1027,19 +1086,21 @@ export const App: React.FC = () => {
                 RegimeRain-AI
                 <span
                   style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: "#94a3b8",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    background: "rgba(2, 132, 199, 0.2)",
+                    color: "#38bdf8",
+                    padding: "2px 6px",
+                    borderRadius: "4px",
+                    border: "1px solid rgba(56, 189, 248, 0.3)",
                     marginLeft: "8px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
                   }}
                 >
-                  India Rainfall Intelligence
+                  SIH 2026 · PS-80
                 </span>
               </div>
-              <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>
-                00 UTC Cycle &bull; Updated 05:30 IST &bull; Multi-source synoptic feed
+              <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "1px" }}>
+                Ministry of Earth Sciences · {new Date(currentTime).toUTCString().slice(0, 22)} UTC
               </div>
             </div>
           </div>
@@ -1081,10 +1142,10 @@ export const App: React.FC = () => {
           ))}
         </div>
 
-        {/* Right: Quick Search & Clean Status */}
+        {/* Right: Quick Search, Status, & User Account */}
         <div style={{ display: "flex", alignItems: "center", gap: "12px", position: "relative" }}>
           {/* Header Quick Search */}
-          <div style={{ position: "relative", width: "220px" }}>
+          <div style={{ position: "relative", width: "200px" }}>
             <Search
               size={14}
               style={{
@@ -1181,7 +1242,7 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Clean Calm Operational Status Pill */}
+          {/* Operational Feed Status Pill */}
           <div
             style={{
               display: "flex",
@@ -1206,10 +1267,147 @@ export const App: React.FC = () => {
             />
             {backendConnected ? "Live Operational Feed" : "Operational Demo Mode"}
           </div>
+
+          {/* User Account Menu Button */}
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                background: "#1e293b",
+                border: "1px solid #334155",
+                borderRadius: "8px",
+                padding: "5px 10px",
+                color: "#f8fafc",
+                cursor: "pointer",
+              }}
+            >
+              <div
+                style={{
+                  width: "24px",
+                  height: "24px",
+                  borderRadius: "50%",
+                  background: "#0284c7",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                }}
+              >
+                {user.name.slice(0, 2).toUpperCase()}
+              </div>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700 }}>{user.name}</div>
+                <div style={{ fontSize: "10px", color: "#38bdf8" }}>{user.role}</div>
+              </div>
+              <ChevronDown size={14} color="#94a3b8" />
+            </button>
+
+            {/* Dropdown Menu */}
+            {userMenuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  right: 0,
+                  width: "260px",
+                  background: "#1e293b",
+                  border: "1px solid #334155",
+                  borderRadius: "8px",
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+                  marginTop: "6px",
+                  zIndex: 2000,
+                  padding: "12px",
+                }}
+              >
+                <div style={{ borderBottom: "1px solid #334155", paddingBottom: "10px", marginBottom: "10px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#f8fafc" }}>{user.name}</div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>{user.email}</div>
+                  <div
+                    style={{
+                      display: "inline-block",
+                      marginTop: "6px",
+                      background: "rgba(56, 189, 248, 0.15)",
+                      color: "#38bdf8",
+                      border: "1px solid rgba(56, 189, 248, 0.3)",
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    {user.role}
+                  </div>
+                </div>
+
+                <div style={{ fontSize: "11px", color: "#cbd5e1", marginBottom: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                    <Building2 size={12} color="#64748b" />
+                    <span>{user.organization}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <ShieldCheck size={12} color="#64748b" />
+                    <span>Assigned: {user.assigned_districts.join(", ")}</span>
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => {
+                    setActiveTab("districts");
+                    setUserMenuOpen(false);
+                  }}
+                  style={{
+                    padding: "8px 10px",
+                    background: "rgba(234, 179, 8, 0.1)",
+                    border: "1px solid rgba(234, 179, 8, 0.2)",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    color: "#facc15",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <Star size={13} />
+                  <span>My Watched Districts ({watchlist.length})</span>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    logout();
+                  }}
+                  style={{
+                    width: "100%",
+                    background: "rgba(239, 68, 68, 0.15)",
+                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                    color: "#fca5a5",
+                    padding: "8px",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <LogOut size={13} />
+                  Sign Out Session
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* Main Navigation (Strictly 2 Primary Tabs: Forecast & Districts) */}
+      {/* Main Navigation (Primary Tabs + Role Protected Views) */}
       <nav
         style={{
           display: "flex",
@@ -1218,9 +1416,12 @@ export const App: React.FC = () => {
           padding: "8px 24px",
           background: "#0f172a",
           borderBottom: "1px solid #1e293b",
+          flexWrap: "wrap",
+          gap: "8px",
         }}
       >
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {/* Primary Tab 1: Forecast */}
           <button
             onClick={() => setActiveTab("forecast")}
             style={{
@@ -1241,6 +1442,7 @@ export const App: React.FC = () => {
             <Compass size={15} /> Forecast & Spatial Map
           </button>
 
+          {/* Primary Tab 2: Districts */}
           <button
             onClick={() => setActiveTab("districts")}
             style={{
@@ -1258,8 +1460,89 @@ export const App: React.FC = () => {
               transition: "all 0.15s ease",
             }}
           >
-            <ListOrdered size={15} /> District Risk Directory ({districts.length})
+            <ListOrdered size={15} /> District Directory ({districts.length})
           </button>
+
+          {/* Primary Tab 3: Alerts */}
+          <button
+            onClick={() => setActiveTab("alerts")}
+            style={{
+              padding: "7px 16px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 700,
+              cursor: "pointer",
+              border: activeTab === "alerts" ? "1px solid #ef4444" : "1px solid transparent",
+              background: activeTab === "alerts" ? "rgba(239, 68, 68, 0.15)" : "transparent",
+              color: activeTab === "alerts" ? "#f87171" : "#94a3b8",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Bell size={15} /> Active Alerts
+            {activeAlertCount > 0 && (
+              <span
+                style={{
+                  background: "#ef4444",
+                  color: "#ffffff",
+                  fontSize: "10px",
+                  fontWeight: 800,
+                  padding: "1px 6px",
+                  borderRadius: "10px",
+                }}
+              >
+                {activeAlertCount}
+              </span>
+            )}
+          </button>
+
+          {/* Role-Specific Tab: MoE Raw vs Corrected (For Forecaster & Research) */}
+          {(user.role_key === "forecaster" || user.role_key === "research") && (
+            <button
+              onClick={() => setActiveTab("comparison")}
+              style={{
+                padding: "7px 14px",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: activeTab === "comparison" ? "1px solid #a855f7" : "1px solid rgba(168, 85, 247, 0.2)",
+                background: activeTab === "comparison" ? "rgba(168, 85, 247, 0.2)" : "rgba(168, 85, 247, 0.05)",
+                color: activeTab === "comparison" ? "#c084fc" : "#cbd5e1",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <GitCompare size={14} /> Forecast Correction
+            </button>
+          )}
+
+          {/* Role-Specific Tab: Scientific Benchmarks (For Research User) */}
+          {user.role_key === "research" && (
+            <button
+              onClick={() => setActiveTab("benchmarks")}
+              style={{
+                padding: "7px 14px",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: activeTab === "benchmarks" ? "1px solid #10b981" : "1px solid rgba(16, 185, 129, 0.2)",
+                background: activeTab === "benchmarks" ? "rgba(16, 185, 129, 0.2)" : "rgba(16, 185, 129, 0.05)",
+                color: activeTab === "benchmarks" ? "#34d399" : "#cbd5e1",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <BarChart2 size={14} /> Scientific Verification
+            </button>
+          )}
         </div>
 
         {/* Watchlist Quick Count indicator */}
@@ -1285,6 +1568,26 @@ export const App: React.FC = () => {
 
       {/* Main View Body */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* DEMONSTRATION MODE Banner */}
+        {!backendConnected && (
+          <div
+            style={{
+              background: "rgba(234, 179, 8, 0.06)",
+              borderBottom: "1px solid rgba(234, 179, 8, 0.2)",
+              padding: "6px 24px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "11px",
+              color: "#d4a017",
+            }}
+          >
+            <AlertTriangle size={13} />
+            <strong>DEMONSTRATION MODE</strong>
+            &mdash; Running on reproducible simulated synoptic scenario (GFS/ERA5 baseline). Not official IMD output. All advisories require certified human forecaster review.
+          </div>
+        )}
+
         {activeTab === "forecast" && (
           <ForecastView
             districts={districts}
@@ -1309,6 +1612,20 @@ export const App: React.FC = () => {
             onToggleWatchlist={toggleWatchlist}
           />
         )}
+
+        {activeTab === "alerts" && (
+          <AlertsView
+            districts={districts}
+            leadHours={leadHours}
+            watchlist={watchlist}
+            onToggleWatchlist={toggleWatchlist}
+            onSelectDistrict={handleSelectDistrictFromMap}
+          />
+        )}
+
+        {activeTab === "comparison" && <RawVsCorrectedView />}
+
+        {activeTab === "benchmarks" && <PerformanceView />}
       </main>
 
       {/* District Intelligence Panel (Slide-over Drawer) */}
@@ -1332,3 +1649,4 @@ export const App: React.FC = () => {
 };
 
 export default App;
+

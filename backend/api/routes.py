@@ -253,3 +253,298 @@ async def get_leaderboard_results() -> Dict[str, Any]:
             data["verification_status"] = "SYNTHETIC VALIDATION / METHODOLOGY DEMONSTRATION"
             return data
     raise HTTPException(status_code=404, detail="Leaderboard results not yet generated.")
+
+
+# -------------------------------------------------------------
+# Demonstration Authentication & Session Management Endpoints
+# -------------------------------------------------------------
+
+DEMO_USERS: Dict[str, Dict[str, Any]] = {
+    "district.officer@demo.regimerain": {
+        "user_id": "usr_dist_01",
+        "email": "district.officer@demo.regimerain",
+        "name": "Dr. A. Verma",
+        "role": "District Officer",
+        "role_key": "district_officer",
+        "organization": "Odisha Disaster Management Authority (OSDMA)",
+        "assigned_districts": ["OD_PUR", "KL_WAY"],
+        "capabilities": [
+            "view_forecast",
+            "view_districts",
+            "view_alerts",
+            "manage_watchlist",
+            "district_intelligence",
+        ],
+    },
+    "forecaster@demo.regimerain": {
+        "user_id": "usr_fcst_01",
+        "email": "forecaster@demo.regimerain",
+        "name": "S. Banerjee",
+        "role": "Forecast Analyst",
+        "role_key": "forecaster",
+        "organization": "India Meteorological Department (IMD)",
+        "assigned_districts": ["ALL"],
+        "capabilities": [
+            "view_forecast",
+            "view_districts",
+            "view_alerts",
+            "manage_watchlist",
+            "view_regimes",
+            "view_diagnostics",
+            "forecaster_override",
+            "view_audit_trail",
+        ],
+    },
+    "disaster.manager@demo.regimerain": {
+        "user_id": "usr_ndrf_01",
+        "email": "disaster.manager@demo.regimerain",
+        "name": "R. K. Meena",
+        "role": "Disaster Management",
+        "role_key": "disaster_manager",
+        "organization": "National Disaster Response Force (NDRF)",
+        "assigned_districts": ["ALL"],
+        "capabilities": [
+            "view_forecast",
+            "view_districts",
+            "view_alerts",
+            "manage_watchlist",
+            "national_overview",
+            "priority_dispatch",
+            "multi_horizon_outlook",
+        ],
+    },
+    "policy@demo.regimerain": {
+        "user_id": "usr_moes_01",
+        "email": "policy@demo.regimerain",
+        "name": "P. Iyer",
+        "role": "Policy / Administration",
+        "role_key": "policy",
+        "organization": "Ministry of Earth Sciences (MoES)",
+        "assigned_districts": ["ALL"],
+        "capabilities": [
+            "view_forecast",
+            "view_districts",
+            "view_alerts",
+            "state_summaries",
+            "national_risk_overview",
+        ],
+    },
+    "research@demo.regimerain": {
+        "user_id": "usr_res_01",
+        "email": "research@demo.regimerain",
+        "name": "Dr. K. Swaminathan",
+        "role": "Research User",
+        "role_key": "research",
+        "organization": "Indian Institute of Tropical Meteorology (IITM)",
+        "assigned_districts": ["ALL"],
+        "capabilities": [
+            "view_forecast",
+            "view_districts",
+            "view_alerts",
+            "view_regimes",
+            "view_verification",
+            "model_diagnostics",
+            "ablation_benchmarks",
+        ],
+    },
+}
+
+DEMO_PASSWORD = "demo2026"
+
+# In-memory demo watchlists per user
+USER_WATCHLISTS: Dict[str, List[str]] = {
+    "district.officer@demo.regimerain": ["OD_PUR", "KL_WAY"],
+    "forecaster@demo.regimerain": ["OD_PUR", "MH_MUM", "KL_WAY"],
+    "disaster.manager@demo.regimerain": ["OD_PUR", "KL_WAY", "MH_RAT", "AP_VSK"],
+    "policy@demo.regimerain": ["OD_PUR", "MH_MUM", "DL_DEL"],
+    "research@demo.regimerain": ["OD_PUR", "WB_KOL", "KL_WAY"],
+}
+
+
+from backend.schemas.common import (
+    LoginRequest,
+    LoginResponse,
+    UserProfile,
+    WatchlistRequest,
+    WatchlistResponse,
+    AlertItem,
+    AlertsResponse,
+)
+
+
+@router.post("/auth/login", response_model=LoginResponse, summary="Demonstration User Authentication")
+async def login(req: LoginRequest) -> LoginResponse:
+    """Authenticate demonstration users with institutional roles.
+    
+    Seed Accounts:
+      - district.officer@demo.regimerain (District Officer)
+      - forecaster@demo.regimerain (Forecast Analyst)
+      - disaster.manager@demo.regimerain (Disaster Management)
+      - policy@demo.regimerain (Policy / Administration)
+      - research@demo.regimerain (Research User)
+    Password for all demo accounts: demo2026
+    """
+    email = req.email.strip().lower()
+    if email not in DEMO_USERS or req.password != DEMO_PASSWORD:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials. For demonstration, select a seeded role or use password 'demo2026'."
+        )
+
+    user_dict = DEMO_USERS[email]
+    # Simple simulated token for demonstration environment
+    token = f"demo_jwt_{user_dict['user_id']}_{int(datetime.now(timezone.utc).timestamp())}"
+
+    return LoginResponse(
+        token=token,
+        user=UserProfile(**user_dict),
+        message=f"Authenticated as {user_dict['role']} ({user_dict['name']})"
+    )
+
+
+@router.get("/auth/me", response_model=UserProfile, summary="Get Current Authenticated User")
+async def get_current_user(email: str = Query("district.officer@demo.regimerain")) -> UserProfile:
+    """Return user profile and capabilities for current active session."""
+    email_clean = email.strip().lower()
+    if email_clean in DEMO_USERS:
+        return UserProfile(**DEMO_USERS[email_clean])
+    # Fallback to district officer
+    return UserProfile(**DEMO_USERS["district.officer@demo.regimerain"])
+
+
+@router.post("/auth/logout", summary="End User Session")
+async def logout() -> Dict[str, str]:
+    """Logout current demonstration session."""
+    return {"status": "SUCCESS", "message": "Session terminated"}
+
+
+# -------------------------------------------------------------
+# Watchlist Endpoints
+# -------------------------------------------------------------
+
+@router.get("/watchlist", response_model=WatchlistResponse, summary="Get User District Watchlist")
+async def get_watchlist(user_email: str = Query("district.officer@demo.regimerain")) -> WatchlistResponse:
+    """Return watched district identifiers for the current user."""
+    email = user_email.strip().lower()
+    items = USER_WATCHLISTS.get(email, ["OD_PUR", "KL_WAY"])
+    return WatchlistResponse(
+        watchlist=items,
+        count=len(items),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.post("/watchlist", response_model=WatchlistResponse, summary="Add District to Watchlist")
+async def add_to_watchlist(
+    req: WatchlistRequest,
+    user_email: str = Query("district.officer@demo.regimerain")
+) -> WatchlistResponse:
+    """Add a district to user's persistent watchlist."""
+    email = user_email.strip().lower()
+    if email not in USER_WATCHLISTS:
+        USER_WATCHLISTS[email] = ["OD_PUR", "KL_WAY"]
+
+    d_id = req.district_id.upper()
+    if d_id not in USER_WATCHLISTS[email]:
+        USER_WATCHLISTS[email].append(d_id)
+
+    return WatchlistResponse(
+        watchlist=USER_WATCHLISTS[email],
+        count=len(USER_WATCHLISTS[email]),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.delete("/watchlist/{district_id}", response_model=WatchlistResponse, summary="Remove District from Watchlist")
+async def remove_from_watchlist(
+    district_id: str,
+    user_email: str = Query("district.officer@demo.regimerain")
+) -> WatchlistResponse:
+    """Remove a district from user's persistent watchlist."""
+    email = user_email.strip().lower()
+    if email not in USER_WATCHLISTS:
+        USER_WATCHLISTS[email] = ["OD_PUR", "KL_WAY"]
+
+    d_id = district_id.upper()
+    if d_id in USER_WATCHLISTS[email]:
+        USER_WATCHLISTS[email].remove(d_id)
+
+    return WatchlistResponse(
+        watchlist=USER_WATCHLISTS[email],
+        count=len(USER_WATCHLISTS[email]),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+# -------------------------------------------------------------
+# Alerts & Warning Center Endpoints
+# -------------------------------------------------------------
+
+@router.get("/alerts", response_model=AlertsResponse, summary="Get Active District Alerts and Warnings")
+async def get_alerts(lead_hours: int = Query(24, description="Forecast lead time in hours (24, 48, 72)")) -> AlertsResponse:
+    """Return all active district alerts categorized by IMD color code (RED, ORANGE, YELLOW) derived from neural inference."""
+    if lead_hours not in (24, 48, 72):
+        lead_hours = 24
+    inference_result = pipeline.run_inference(lead_hours=lead_hours)
+
+    alerts: List[AlertItem] = []
+    red_count = 0
+    orange_count = 0
+    yellow_count = 0
+
+    valid_window = f"Valid next {lead_hours} hours (until {inference_result['forecast_valid_time']})"
+
+    for dist in inference_result["districts"]:
+        color = dist["advisory"]["color_code"].upper()
+        if color == "RED":
+            red_count += 1
+            severity_label = "Warning (Take Action)"
+        elif color == "ORANGE":
+            orange_count += 1
+            severity_label = "Alert (Be Prepared)"
+        elif color == "YELLOW":
+            yellow_count += 1
+            severity_label = "Watch (Be Updated)"
+        else:
+            continue  # GREEN does not produce an active alert card
+
+        why = dist.get("explanation", {}).get("summary", "")
+        if not why:
+            regime = dist["advisory"]["dominant_regime"].replace("_", " ").title()
+            why = f"Elevated extreme rainfall probability under {regime} regime influence."
+
+        alerts.append(
+            AlertItem(
+                alert_id=f"ALT_{dist['district_id']}_{lead_hours}H",
+                district_id=dist["district_id"],
+                district_name=dist["name"],
+                state_name=dist["state"],
+                severity=color,
+                severity_label=severity_label,
+                expected_rainfall_mm=dist["forecast"]["mean_q50_mm"],
+                likely_range_mm=dist["forecast"]["likely_range_q25_q75"],
+                prob_heavy=dist["forecast"]["prob_heavy_64_5mm"],
+                prob_very_heavy=dist["forecast"]["prob_very_heavy_115_6mm"],
+                prob_extreme=dist["forecast"]["prob_extreme_204_5mm"],
+                dominant_regime=dist["advisory"]["dominant_regime"],
+                confidence=dist["forecast"].get("confidence", "High"),
+                valid_window=valid_window,
+                why_highlighted=why,
+                recommended_action=dist["advisory"]["action_text"],
+                issued_at=inference_result["forecast_valid_time"],
+            )
+        )
+
+    # Sort alerts: RED first, then ORANGE, then YELLOW, then highest rainfall
+    severity_order = {"RED": 0, "ORANGE": 1, "YELLOW": 2}
+    alerts.sort(key=lambda a: (severity_order.get(a.severity, 99), -a.expected_rainfall_mm))
+
+    return AlertsResponse(
+        total_alerts=len(alerts),
+        red_count=red_count,
+        orange_count=orange_count,
+        yellow_count=yellow_count,
+        lead_hours=lead_hours,
+        alerts=alerts,
+    )
+

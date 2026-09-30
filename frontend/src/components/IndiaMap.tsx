@@ -3,7 +3,7 @@ import L from "leaflet";
 import { CloudRain, AlertTriangle, ShieldAlert, Compass, RotateCcw, AlertCircle } from "lucide-react";
 import { DISTRICT_GEOJSON } from "../data/districtGeoJSON";
 
-export type MapLayerType = "RAIN" | "HEAVY_RAIN" | "VERY_HEAVY" | "RISK" | "REGIME";
+export type MapLayerType = "RAIN" | "HEAVY_RAIN" | "VERY_HEAVY" | "RISK" | "REGIME" | "UNCERTAINTY";
 
 export interface DistrictAdvisory {
   district_id: string;
@@ -125,10 +125,19 @@ export const IndiaMap: React.FC<IndiaMapProps> = ({
         if (r === "WESTERN_DISTURBANCE") return "#8b5cf6";
         return "#64748b";
       }
+      case "UNCERTAINTY": {
+        const range = d.forecast.likely_range_q25_q75;
+        const spread = range ? range[1] - range[0] : (d.forecast.max_q90_mm - d.forecast.mean_q50_mm);
+        if (spread > 75) return "#8b5cf6"; // High spread / wide interval (Purple)
+        if (spread > 45) return "#f59e0b"; // Moderate spread (Amber)
+        if (spread > 20) return "#0284c7"; // Controlled spread (Blue)
+        return "#10b981";                 // Tight interval / High certainty (Emerald)
+      }
       default:
         return "#0284c7";
     }
   };
+
 
   // Initialize Leaflet map
   useEffect(() => {
@@ -407,7 +416,28 @@ export const IndiaMap: React.FC<IndiaMapProps> = ({
           }}
         >
           <Compass size={14} />
-          Weather Situation
+          Weather Regime
+        </button>
+
+        <button
+          onClick={() => onChangeLayer("UNCERTAINTY")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "6px 11px",
+            borderRadius: "6px",
+            border: "none",
+            fontSize: "12px",
+            fontWeight: 700,
+            cursor: "pointer",
+            background: activeLayer === "UNCERTAINTY" ? "#8b5cf6" : "transparent",
+            color: activeLayer === "UNCERTAINTY" ? "#ffffff" : "#475569",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <ShieldAlert size={14} />
+          Uncertainty
         </button>
       </div>
 
@@ -434,6 +464,7 @@ export const IndiaMap: React.FC<IndiaMapProps> = ({
           {activeLayer === "VERY_HEAVY" && "Very Heavy Rain Probability (>115.6 mm)"}
           {activeLayer === "RISK" && "Decision-Support Risk Level"}
           {activeLayer === "REGIME" && "Dominant Weather Situation"}
+          {activeLayer === "UNCERTAINTY" && "Forecast Spread / Uncertainty"}
         </div>
 
         {activeLayer === "RAIN" && (
@@ -549,6 +580,27 @@ export const IndiaMap: React.FC<IndiaMapProps> = ({
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ width: "12px", height: "8px", background: "#3b82f6", borderRadius: "2px" }}></span>
               <span>Active Monsoon Surge</span>
+            </div>
+          </div>
+        )}
+
+        {activeLayer === "UNCERTAINTY" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "3px", color: "#334155" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ width: "16px", height: "10px", background: "#10b981", borderRadius: "2px", display: "inline-block" }}></span>
+              <span>High Precision / Low Spread (&lt; 20 mm)</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ width: "16px", height: "10px", background: "#0284c7", borderRadius: "2px", display: "inline-block" }}></span>
+              <span>Controlled Spread (20 – 45 mm)</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ width: "16px", height: "10px", background: "#f59e0b", borderRadius: "2px", display: "inline-block" }}></span>
+              <span>Moderate Uncertainty (45 – 75 mm)</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ width: "16px", height: "10px", background: "#8b5cf6", borderRadius: "2px", display: "inline-block" }}></span>
+              <span>Wide Quantile Range (&gt; 75 mm)</span>
             </div>
           </div>
         )}

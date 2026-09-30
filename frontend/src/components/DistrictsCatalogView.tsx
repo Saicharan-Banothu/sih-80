@@ -378,6 +378,7 @@ export const DistrictsCatalogView: React.FC<DistrictsCatalogViewProps> = ({
             return (
               <div
                 key={d.district_id}
+                className="district-catalog-card"
                 onClick={() => onSelectDistrict(d)}
                 style={{
                   background: "#1e293b",
@@ -390,7 +391,7 @@ export const DistrictsCatalogView: React.FC<DistrictsCatalogViewProps> = ({
                   alignItems: "center",
                   gap: "16px",
                   cursor: "pointer",
-                  transition: "transform 0.1s ease, border-color 0.15s ease",
+                  transition: "transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = "#475569";

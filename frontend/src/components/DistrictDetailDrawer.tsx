@@ -97,6 +97,7 @@ export const DistrictDetailDrawer: React.FC<DistrictDetailDrawerProps> = ({
       onClick={onClose}
     >
       <div
+        className="drawer-panel"
         style={{
           width: "100%",
           maxWidth: "580px",

@@ -59,3 +59,69 @@ class ForecasterOverrideRequest(BaseModel):
     overridden_color: Optional[str] = None
     scaling_multiplier: Optional[float] = None
     justification_reason: str = Field(default="Duty meteorologist synoptic adjustment")
+
+
+# -------------------------------------------------------------
+# Authentication & User Management Schemas
+# -------------------------------------------------------------
+
+class UserProfile(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    role: str  # "District Officer" | "Forecast Analyst" | "Disaster Management" | "Policy / Administration" | "Research User"
+    role_key: str  # "district_officer" | "forecaster" | "disaster_manager" | "policy" | "research"
+    organization: str
+    assigned_districts: List[str] = []
+    capabilities: List[str] = []
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    user: UserProfile
+    message: str = "Authentication successful"
+
+
+class WatchlistRequest(BaseModel):
+    district_id: str
+
+
+class WatchlistResponse(BaseModel):
+    watchlist: List[str]
+    count: int
+    updated_at: str
+
+
+class AlertItem(BaseModel):
+    alert_id: str
+    district_id: str
+    district_name: str
+    state_name: str
+    severity: str  # "RED" | "ORANGE" | "YELLOW" | "GREEN"
+    severity_label: str  # "Warning" | "Alert" | "Watch" | "No Warning"
+    expected_rainfall_mm: float
+    likely_range_mm: List[float]
+    prob_heavy: float
+    prob_very_heavy: float
+    prob_extreme: float
+    dominant_regime: str
+    confidence: str
+    valid_window: str
+    why_highlighted: str
+    recommended_action: str
+    issued_at: str
+
+
+class AlertsResponse(BaseModel):
+    total_alerts: int
+    red_count: int
+    orange_count: int
+    yellow_count: int
+    lead_hours: int
+    alerts: List[AlertItem]
+

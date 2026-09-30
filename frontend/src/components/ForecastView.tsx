@@ -98,6 +98,7 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
     >
       {/* Top Floating Weather Situation Card (Overlay) */}
       <div
+        className="map-float-card"
         style={{
           position: "absolute",
           top: "16px",
@@ -246,7 +247,7 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
           </span>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "2px" }}>
+        <div className="priority-strip" style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "2px" }}>
           {highPriorityDistricts.map((d) => {
             const isRed = d.advisory.color_code === "RED";
             const pillColor = isRed ? "#ef4444" : "#f97316";
